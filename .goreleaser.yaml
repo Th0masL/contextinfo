@@ -21,11 +21,9 @@ builds:
     goarch: [amd64, arm64]
 
 archives:
+  # "binary" publishes the raw executables directly — no tar.gz/zip to extract.
   - id: contextinfo
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+    formats: [binary]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:

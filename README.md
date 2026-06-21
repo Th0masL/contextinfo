@@ -21,7 +21,8 @@ Binary:
 go install github.com/Th0masL/contextinfo/cmd/contextinfo@latest
 ```
 
-Or download a release archive from the [Releases](https://github.com/Th0masL/contextinfo/releases) page.
+Or download a prebuilt binary from the [Releases](https://github.com/Th0masL/contextinfo/releases) page
+(raw executables, no archive to extract — on Unix, `chmod +x` it and move it onto your `PATH`).
 
 Library:
 
