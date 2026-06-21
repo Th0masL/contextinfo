@@ -44,3 +44,25 @@ jobs:
       # natively on each OS (see cmd/contextinfo/main_test.go).
       - name: Build & exercise the binary
         run: go test -v ./cmd/contextinfo/
+
+  # Diagnostic: dump the CI-provided environment alongside what contextinfo
+  # detects from it, on a real GitHub Actions runner — so we can confirm the
+  # binary captures the right values and spot any useful variables we're not
+  # using yet. Safe to remove once coverage is confirmed.
+  inspect:
+    name: Inspect environment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: GitHub / CI environment variables
+        run: printenv | sort | grep -E '^(GITHUB_|RUNNER_|CI)' | grep -viE 'token|secret|password' || true
+      - name: What contextinfo detects from it
+        run: |
+          echo '----- contextinfo --format=json -----'
+          go run ./cmd/contextinfo --format=json
+          echo '----- contextinfo --format=envvar -----'
+          go run ./cmd/contextinfo --format=envvar
