@@ -1,0 +1,49 @@
+name: printenv
+
+# Diagnostic workflow: dump the runner environment — and what contextinfo
+# detects from it — for as many event types as practical, so we can see which
+# GITHUB_*/CI variables each event populates and confirm the binary captures the
+# right ones.
+#
+# GitHub has no "all events" wildcard, so the relevant events are listed
+# explicitly; add more as needed. Use "Run workflow" (workflow_dispatch) in the
+# Actions tab to trigger it on demand. This is a diagnostic and consumes CI
+# minutes on every listed event — trim the list (or delete the file) once you've
+# gathered what you need.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  create:
+  delete:
+  release:
+    types: [published]
+  schedule:
+    - cron: "0 6 * * 1" # weekly, to capture the scheduled-event environment
+  issues:
+  issue_comment:
+
+permissions:
+  contents: read
+
+jobs:
+  printenv:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Event name
+        run: echo "event_name = ${{ github.event_name }}"
+      # printenv needs no checkout. Filter to context-relevant vars and drop
+      # anything that looks sensitive (GitHub also masks registered secrets).
+      - name: Environment variables
+        run: printenv | sort | grep -E '^(GITHUB_|RUNNER_|CI)' | grep -viE 'token|secret|password' || true
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: What contextinfo detects
+        run: |
+          echo '----- contextinfo --format=json -----'
+          go run ./cmd/contextinfo --format=json
+          echo '----- contextinfo --format=envvar -----'
+          go run ./cmd/contextinfo --format=envvar
