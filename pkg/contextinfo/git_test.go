@@ -71,6 +71,37 @@ func TestDetectGit(t *testing.T) {
 	}
 }
 
+func TestGitBranchSkipsTagRefs(t *testing.T) {
+	dir := newRepo(t)
+	t.Chdir(dir)
+	clearCI(t)
+	// Detach HEAD to mimic a CI checkout (symbolic-ref then fails -> fallback).
+	runGit(t, dir, "checkout", "--detach")
+
+	// Tag event (release or tag push): ref type is "tag" -> no branch.
+	t.Setenv("GITHUB_REF_TYPE", "tag")
+	t.Setenv("GITHUB_REF_NAME", "v1.2.3")
+	if got := gitBranch(); got != "" {
+		t.Errorf("tag event: branch = %q, want empty (it's a tag, not a branch)", got)
+	}
+
+	// Branch event: ref type is "branch" -> the branch name.
+	t.Setenv("GITHUB_REF_TYPE", "branch")
+	t.Setenv("GITHUB_REF_NAME", "main")
+	if got := gitBranch(); got != "main" {
+		t.Errorf("branch event: branch = %q, want main", got)
+	}
+
+	// GitLab tag pipeline leaves CI_COMMIT_BRANCH empty (only CI_COMMIT_REF_NAME
+	// holds the tag), so the branch must stay empty.
+	t.Setenv("GITHUB_REF_TYPE", "")
+	t.Setenv("GITHUB_REF_NAME", "")
+	t.Setenv("CI_COMMIT_REF_NAME", "v1.2.3")
+	if got := gitBranch(); got != "" {
+		t.Errorf("gitlab tag pipeline: branch = %q, want empty", got)
+	}
+}
+
 func TestSanitizeRemote(t *testing.T) {
 	cases := map[string]string{
 		// GitLab CI rewrites origin with the job token — must be stripped.

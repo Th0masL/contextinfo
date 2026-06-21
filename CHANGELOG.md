@@ -13,6 +13,14 @@ follows [Semantic Versioning](https://semver.org/).
 - `CIInfo` gained `actor`, `event`, `repository`, `workflow`, and `server_url`
   (populated for GitHub Actions and GitLab CI).
 
+### Fixed
+
+- `git.branch` is no longer set to the tag name on tag/release events. In CI's
+  detached-HEAD checkout the fallback used a ref-name variable that holds the tag
+  on tag events; it now uses ref-type-aware fallbacks (`GITHUB_REF_TYPE=branch`,
+  GitLab `CI_COMMIT_BRANCH`), leaving `git.branch` empty for tags (`git.tag`
+  still carries the tag).
+
 ### Added
 
 - Initial `contextinfo` library (`pkg/contextinfo`) exposing `Detect() Info`.

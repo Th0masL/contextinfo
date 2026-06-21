@@ -54,16 +54,30 @@ func sanitizeRemote(raw string) string {
 	}
 }
 
-// gitBranch returns the current branch, falling back to well-known CI
-// environment variables when HEAD is detached (common in CI checkouts).
+// gitBranch returns the current branch. On a branch, symbolic-ref is
+// authoritative. In CI the checkout is usually a detached HEAD, so it falls back
+// to CI hints — chosen so a *tag* checkout is never mislabeled as a branch (on a
+// tag event GITHUB_REF_NAME / CI_COMMIT_REF_NAME hold the tag name, not a branch).
 func gitBranch() string {
 	if b, err := git("symbolic-ref", "--short", "HEAD"); err == nil && b != "" {
 		return b
 	}
+	// GITHUB_HEAD_REF is a PR source branch; GITHUB_REF_NAME is a branch only
+	// when the ref type is "branch" (it's the tag name on tag/release events).
+	if v := strings.TrimSpace(os.Getenv("GITHUB_HEAD_REF")); v != "" {
+		return v
+	}
+	if os.Getenv("GITHUB_REF_TYPE") == "branch" {
+		if v := strings.TrimSpace(os.Getenv("GITHUB_REF_NAME")); v != "" {
+			return v
+		}
+	}
+	// Branch-only variables (unset on tag builds) for other platforms.
 	for _, k := range []string{
-		"GITHUB_HEAD_REF", "GITHUB_REF_NAME",
-		"CI_COMMIT_REF_NAME", "CIRCLE_BRANCH",
-		"BUILDKITE_BRANCH", "TRAVIS_BRANCH", "BRANCH_NAME",
+		"CI_COMMIT_BRANCH", // GitLab: set only on branch pipelines
+		"CIRCLE_BRANCH",    // CircleCI: empty on tag builds
+		"BUILDKITE_BRANCH",
+		"BRANCH_NAME", // Jenkins
 	} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
 			return v

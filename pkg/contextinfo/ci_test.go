@@ -7,8 +7,13 @@ import "testing"
 func clearCI(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
-		"CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI",
-		"JENKINS_URL", "TRAVIS", "BUILDKITE",
+		// platform markers
+		"CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "JENKINS_URL", "TRAVIS", "BUILDKITE",
+		// branch/ref hints used by the gitBranch fallback (so tests don't pick
+		// up the real runner's values when they run inside CI)
+		"GITHUB_HEAD_REF", "GITHUB_REF_NAME", "GITHUB_REF_TYPE",
+		"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME", "CIRCLE_BRANCH", "BUILDKITE_BRANCH",
+		"TRAVIS_BRANCH", "BRANCH_NAME",
 	} {
 		t.Setenv(k, "")
 	}
