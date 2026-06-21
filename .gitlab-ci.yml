@@ -1,0 +1,19 @@
+# GitLab CI pipeline. This file is mirrored from the GitHub repo (GitHub ignores
+# it; GitLab runs it). It is the GitLab counterpart of
+# .github/workflows/printenv.yml — a diagnostic that dumps the runner
+# environment and what contextinfo detects from it, so we can confirm GitLab CI
+# detection works.
+#
+# With no rules, this runs on branch/tag pushes, scheduled pipelines, and manual
+# ("Run pipeline" / web) runs — not on merge requests, which matches how
+# contextinfo is used (deploy-time, not on MRs).
+
+printenv:
+  image: golang:1.24
+  script:
+    - echo "CI_PIPELINE_SOURCE = $CI_PIPELINE_SOURCE" # what triggered this run
+    - printenv | sort | grep -E '^(GIT|CI)' | grep -viE 'token|secret|password' || true
+    - echo '----- contextinfo --format=json -----'
+    - go run ./cmd/contextinfo --format=json
+    - echo '----- contextinfo --format=envvar -----'
+    - go run ./cmd/contextinfo --format=envvar
