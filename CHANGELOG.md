@@ -14,5 +14,8 @@ follows [Semantic Versioning](https://semver.org/).
 - Git context detection: commit, branch (with CI fallback when detached), tag,
   dirty state, and origin remote.
 - Runtime detection: OS, arch, hostname.
-- `contextinfo` CLI that prints the detected context as JSON or text.
+- `contextinfo` CLI that prints the detected context as JSON, text, or
+  Terraform variables (`tfvars` HCL / `tfvars-json` JSON).
+- `Info.TFVarsHCL()` / `Info.TFVarsJSON()` library methods that flatten the
+  context into `contextinfo_*` Terraform variables (HCL output escapes `${`/`%{`).
 - GoReleaser configuration and CI/release GitHub Actions workflows.

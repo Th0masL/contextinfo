@@ -32,8 +32,10 @@ go get github.com/Th0masL/contextinfo
 ## CLI usage
 
 ```console
-$ contextinfo                 # JSON (default)
-$ contextinfo --format=text   # aligned key/value text
+$ contextinfo                      # JSON (default)
+$ contextinfo --format=text        # aligned key/value text
+$ contextinfo --format=tfvars      # Terraform variables (HCL)
+$ contextinfo --format=tfvars-json # Terraform variables (JSON)
 $ contextinfo --version
 ```
 
@@ -63,6 +65,37 @@ Example JSON output:
 ```
 
 The command exits `0` even when nothing is detected (detection is never fatal).
+
+### Terraform variables
+
+The `tfvars` / `tfvars-json` formats emit flat `contextinfo_*` variables you can
+drop next to your Terraform config — Terraform auto-loads `*.auto.tfvars` and
+`*.auto.tfvars.json`:
+
+```console
+$ contextinfo --format=tfvars-json > contextinfo.auto.tfvars.json
+$ contextinfo --format=tfvars      > contextinfo.auto.tfvars
+```
+
+```hcl
+# contextinfo.auto.tfvars
+contextinfo_ci_name    = "github-actions"
+contextinfo_git_commit = "a1b2c3d4"
+contextinfo_git_dirty  = false
+contextinfo_runtime_os = "linux"
+```
+
+Declare only the variables you use:
+
+```hcl
+variable "contextinfo_git_commit" {
+  type    = string
+  default = ""
+}
+```
+
+String values are safely quoted in HCL (including `${`/`%{` interpolation
+markers), so untrusted ref or remote values can't break the file.
 
 ## Library usage
 

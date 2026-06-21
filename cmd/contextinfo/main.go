@@ -15,7 +15,7 @@ import (
 var version = "dev"
 
 func main() {
-	format := flag.String("format", "json", "output format: json or text")
+	format := flag.String("format", "json", "output format: json, text, tfvars, or tfvars-json")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -33,8 +33,17 @@ func main() {
 		_ = enc.Encode(info)
 	case "text":
 		printText(info)
+	case "tfvars":
+		fmt.Print(info.TFVarsHCL())
+	case "tfvars-json":
+		b, err := info.TFVarsJSON()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "contextinfo: %v\n", err)
+			os.Exit(1)
+		}
+		os.Stdout.Write(b)
 	default:
-		fmt.Fprintf(os.Stderr, "contextinfo: unknown format %q (want json or text)\n", *format)
+		fmt.Fprintf(os.Stderr, "contextinfo: unknown format %q (want json, text, tfvars, or tfvars-json)\n", *format)
 		os.Exit(2)
 	}
 }
