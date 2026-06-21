@@ -12,7 +12,6 @@ name: printenv
 # gathered what you need.
 on:
   push:
-  pull_request:
   workflow_dispatch:
   release:
     types: [published]
@@ -28,10 +27,11 @@ jobs:
     steps:
       - name: Event name
         run: echo "event_name = ${{ github.event_name }}"
-      # printenv needs no checkout. Filter to context-relevant vars and drop
-      # anything that looks sensitive (GitHub also masks registered secrets).
+      # printenv needs no checkout. The GIT prefix covers GITHUB_*, GIT_* (git's
+      # own vars) and GITLAB_*. Drop anything that looks sensitive (GitHub also
+      # masks registered secrets in logs).
       - name: Environment variables
-        run: printenv | sort | grep -E '^(GITHUB_|RUNNER_|CI)' | grep -viE 'token|secret|password' || true
+        run: printenv | sort | grep -E '^(GIT|RUNNER_|CI)' | grep -viE 'token|secret|password' || true
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
