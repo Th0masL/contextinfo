@@ -1,5 +1,5 @@
-// Command contextinfo prints the detected run context (CI, git, runtime) as
-// JSON or text.
+// Command contextinfo prints the detected run context (CI, git, runtime) in a
+// choice of formats (json, json-flat, text, tfvars, tfvars-json).
 package main
 
 import (
@@ -15,7 +15,8 @@ import (
 var version = "dev"
 
 func main() {
-	format := flag.String("format", "json", "output format: json, text, tfvars, or tfvars-json")
+	format := flag.String("format", "json", "output format: json, json-flat, text, tfvars, or tfvars-json")
+	prefix := flag.String("prefix", "", "prefix for flattened keys (applies to json-flat, tfvars, tfvars-json)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -31,21 +32,29 @@ func main() {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(info)
+	case "json-flat":
+		b, err := info.FlatJSON(*prefix)
+		emit(b, err)
 	case "text":
 		printText(info)
 	case "tfvars":
-		fmt.Print(info.TFVarsHCL())
+		fmt.Print(info.TFVarsHCL(*prefix))
 	case "tfvars-json":
-		b, err := info.TFVarsJSON()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "contextinfo: %v\n", err)
-			os.Exit(1)
-		}
-		os.Stdout.Write(b)
+		b, err := info.TFVarsJSON(*prefix)
+		emit(b, err)
 	default:
-		fmt.Fprintf(os.Stderr, "contextinfo: unknown format %q (want json, text, tfvars, or tfvars-json)\n", *format)
+		fmt.Fprintf(os.Stderr, "contextinfo: unknown format %q (want json, json-flat, text, tfvars, or tfvars-json)\n", *format)
 		os.Exit(2)
 	}
+}
+
+// emit writes b to stdout, or exits non-zero on a rendering error.
+func emit(b []byte, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "contextinfo: %v\n", err)
+		os.Exit(1)
+	}
+	os.Stdout.Write(b)
 }
 
 func printText(info contextinfo.Info) {

@@ -94,15 +94,37 @@ func TestCLIText(t *testing.T) {
 	}
 }
 
+func TestCLIJSONFlat(t *testing.T) {
+	bin := buildCLI(t)
+	out, code := runCLI(t, bin, "--format=json-flat")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("json-flat is not valid JSON: %v\n%s", err, out)
+	}
+	if _, ok := m["git_commit"]; !ok {
+		t.Errorf("json-flat missing flat key git_commit\n%s", out)
+	}
+	if _, nested := m["git"]; nested {
+		t.Errorf("json-flat should be flat, found nested \"git\"\n%s", out)
+	}
+}
+
 func TestCLITFVars(t *testing.T) {
 	bin := buildCLI(t)
 
+	// Default: no prefix.
 	hcl, code := runCLI(t, bin, "--format=tfvars")
 	if code != 0 {
 		t.Fatalf("tfvars: exit = %d, want 0", code)
 	}
-	if !strings.Contains(hcl, "contextinfo_runtime_os") || !strings.Contains(hcl, " = ") {
+	if !strings.Contains(hcl, "runtime_os") || !strings.Contains(hcl, " = ") {
 		t.Errorf("tfvars (HCL) output missing expected variable assignment\n%s", hcl)
+	}
+	if strings.Contains(hcl, "contextinfo_") {
+		t.Errorf("tfvars should have no prefix by default\n%s", hcl)
 	}
 
 	js, code := runCLI(t, bin, "--format=tfvars-json")
@@ -113,8 +135,19 @@ func TestCLITFVars(t *testing.T) {
 	if err := json.Unmarshal([]byte(js), &m); err != nil {
 		t.Fatalf("tfvars-json is not valid JSON: %v\n%s", err, js)
 	}
-	if _, ok := m["contextinfo_runtime_os"]; !ok {
-		t.Errorf("tfvars-json missing contextinfo_runtime_os\n%s", js)
+	if _, ok := m["runtime_os"]; !ok {
+		t.Errorf("tfvars-json missing runtime_os\n%s", js)
+	}
+}
+
+func TestCLIPrefix(t *testing.T) {
+	bin := buildCLI(t)
+	out, code := runCLI(t, bin, "--format=tfvars", "--prefix", "TF_VAR_")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(out, "TF_VAR_git_commit") {
+		t.Errorf("--prefix not applied; expected TF_VAR_git_commit\n%s", out)
 	}
 }
 

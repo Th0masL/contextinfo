@@ -6,62 +6,78 @@ import (
 	"strings"
 )
 
-// tfvarPrefix namespaces the flattened Terraform variable names.
-const tfvarPrefix = "contextinfo_"
-
-// tfvar is a single flattened Terraform variable (value is a string or bool).
-type tfvar struct {
-	name string
-	val  any
+// flatPair is a single flattened key/value pair (value is a string or bool).
+type flatPair struct {
+	key string
+	val any
 }
 
-// tfvars flattens the context into Terraform variables in a stable, grouped
-// order (ci, git, runtime), each prefixed with "contextinfo_".
-func (i Info) tfvars() []tfvar {
-	return []tfvar{
-		{tfvarPrefix + "ci_detected", i.CI.Detected},
-		{tfvarPrefix + "ci_name", i.CI.Name},
-		{tfvarPrefix + "ci_build_url", i.CI.BuildURL},
-		{tfvarPrefix + "ci_build_number", i.CI.BuildNumber},
-		{tfvarPrefix + "git_commit", i.Git.Commit},
-		{tfvarPrefix + "git_branch", i.Git.Branch},
-		{tfvarPrefix + "git_tag", i.Git.Tag},
-		{tfvarPrefix + "git_dirty", i.Git.Dirty},
-		{tfvarPrefix + "git_remote", i.Git.Remote},
-		{tfvarPrefix + "runtime_os", i.Runtime.OS},
-		{tfvarPrefix + "runtime_arch", i.Runtime.Arch},
-		{tfvarPrefix + "runtime_hostname", i.Runtime.Hostname},
+// flatten returns the context as ordered key/value pairs, with the nested path
+// joined by "_" (ci_name, git_commit, runtime_os, ...) and each key prefixed
+// with prefix (use "" for none).
+func (i Info) flatten(prefix string) []flatPair {
+	return []flatPair{
+		{prefix + "ci_detected", i.CI.Detected},
+		{prefix + "ci_name", i.CI.Name},
+		{prefix + "ci_build_url", i.CI.BuildURL},
+		{prefix + "ci_build_number", i.CI.BuildNumber},
+		{prefix + "git_commit", i.Git.Commit},
+		{prefix + "git_branch", i.Git.Branch},
+		{prefix + "git_tag", i.Git.Tag},
+		{prefix + "git_dirty", i.Git.Dirty},
+		{prefix + "git_remote", i.Git.Remote},
+		{prefix + "runtime_os", i.Runtime.OS},
+		{prefix + "runtime_arch", i.Runtime.Arch},
+		{prefix + "runtime_hostname", i.Runtime.Hostname},
 	}
 }
 
-// TFVarsJSON renders the context as a Terraform variables document in JSON
-// (suitable for a *.auto.tfvars.json file).
-func (i Info) TFVarsJSON() ([]byte, error) {
-	m := make(map[string]any, 12)
-	for _, v := range i.tfvars() {
-		m[v.name] = v.val
+// FlatJSON renders the context as a flat JSON object: nested paths joined with
+// "_" (e.g. "git_commit"), value types preserved (bools stay bool), keys in a
+// stable order, each prefixed with prefix (use "" for none).
+func (i Info) FlatJSON(prefix string) ([]byte, error) {
+	pairs := i.flatten(prefix)
+	var b strings.Builder
+	b.WriteString("{\n")
+	for idx, p := range pairs {
+		key, err := json.Marshal(p.key)
+		if err != nil {
+			return nil, err
+		}
+		val, err := json.Marshal(p.val)
+		if err != nil {
+			return nil, err
+		}
+		sep := ","
+		if idx == len(pairs)-1 {
+			sep = ""
+		}
+		fmt.Fprintf(&b, "  %s: %s%s\n", key, val, sep)
 	}
-	b, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(b, '\n'), nil
+	b.WriteString("}\n")
+	return []byte(b.String()), nil
 }
 
-// TFVarsHCL renders the context as a Terraform variables document in HCL
-// (suitable for a *.auto.tfvars file). String values are safely quoted,
-// including escaping of the ${ and %{ interpolation markers.
-func (i Info) TFVarsHCL() string {
-	vars := i.tfvars()
+// TFVarsJSON renders flat Terraform variables as a .tfvars.json document. It is
+// equivalent to FlatJSON — a flat, prefixed JSON object.
+func (i Info) TFVarsJSON(prefix string) ([]byte, error) {
+	return i.FlatJSON(prefix)
+}
+
+// TFVarsHCL renders flat Terraform variables as a .tfvars (HCL) document. String
+// values are safely quoted, including escaping of the ${ and %{ interpolation
+// markers. Each variable name is prefixed with prefix (use "" for none).
+func (i Info) TFVarsHCL(prefix string) string {
+	pairs := i.flatten(prefix)
 	width := 0
-	for _, v := range vars {
-		if len(v.name) > width {
-			width = len(v.name)
+	for _, p := range pairs {
+		if len(p.key) > width {
+			width = len(p.key)
 		}
 	}
 	var b strings.Builder
-	for _, v := range vars {
-		fmt.Fprintf(&b, "%-*s = %s\n", width, v.name, hclValue(v.val))
+	for _, p := range pairs {
+		fmt.Fprintf(&b, "%-*s = %s\n", width, p.key, hclValue(p.val))
 	}
 	return b.String()
 }

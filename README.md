@@ -32,11 +32,20 @@ go get github.com/Th0masL/contextinfo
 ## CLI usage
 
 ```console
-$ contextinfo                      # JSON (default)
+$ contextinfo                      # nested JSON (default)
+$ contextinfo --format=json-flat   # flat JSON (ci.name -> ci_name)
 $ contextinfo --format=text        # aligned key/value text
 $ contextinfo --format=tfvars      # Terraform variables (HCL)
 $ contextinfo --format=tfvars-json # Terraform variables (JSON)
 $ contextinfo --version
+```
+
+The flat formats (`json-flat`, `tfvars`, `tfvars-json`) join nested paths with
+`_` and take an optional **`--prefix`**, which is empty by default:
+
+```console
+$ contextinfo --format=json-flat                       # git_commit, runtime_os, ...
+$ contextinfo --format=tfvars --prefix TF_VAR_         # TF_VAR_git_commit = "..."
 ```
 
 Example JSON output:
@@ -68,8 +77,8 @@ The command exits `0` even when nothing is detected (detection is never fatal).
 
 ### Terraform variables
 
-The `tfvars` / `tfvars-json` formats emit flat `contextinfo_*` variables you can
-drop next to your Terraform config — Terraform auto-loads `*.auto.tfvars` and
+The `tfvars` / `tfvars-json` formats emit flat variables you can drop next to
+your Terraform config — Terraform auto-loads `*.auto.tfvars` and
 `*.auto.tfvars.json`:
 
 ```console
@@ -78,17 +87,18 @@ $ contextinfo --format=tfvars      > contextinfo.auto.tfvars
 ```
 
 ```hcl
-# contextinfo.auto.tfvars
-contextinfo_ci_name    = "github-actions"
-contextinfo_git_commit = "a1b2c3d4"
-contextinfo_git_dirty  = false
-contextinfo_runtime_os = "linux"
+# contextinfo.auto.tfvars  (no prefix by default)
+ci_name    = "github-actions"
+git_commit = "a1b2c3d4"
+git_dirty  = false
+runtime_os = "linux"
 ```
 
-Declare only the variables you use:
+Declare only the variables you use (add `--prefix` if you want them namespaced,
+e.g. `--prefix tf_` → `tf_git_commit`):
 
 ```hcl
-variable "contextinfo_git_commit" {
+variable "git_commit" {
   type    = string
   default = ""
 }
