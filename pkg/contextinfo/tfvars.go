@@ -102,8 +102,8 @@ func (i Info) EnvVars(prefix string) string {
 	return b.String()
 }
 
-// shellSingleQuote wraps s in single quotes, escaping any embedded single quote
-// as '\'' — the result is a single safe shell word.
+// shellSingleQuote returns s as one safe shell word: wrapped in single quotes,
+// with any embedded single quote escaped via the close/escape/reopen idiom.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

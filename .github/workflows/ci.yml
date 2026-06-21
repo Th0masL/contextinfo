@@ -18,6 +18,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go vet ./...
+      - name: gofmt
+        run: test -z "$(gofmt -s -l . | tee /dev/stderr)"
       - run: go test ./... -race -coverprofile=coverage.out
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
