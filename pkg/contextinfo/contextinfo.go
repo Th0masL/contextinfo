@@ -12,12 +12,19 @@ type Info struct {
 	Runtime RuntimeInfo `json:"runtime"`
 }
 
-// CIInfo describes the detected CI/CD environment.
+// CIInfo describes the detected CI/CD environment. Beyond Detected/Name/BuildURL/
+// BuildNumber, the remaining fields are populated for GitHub Actions and GitLab
+// CI; other platforms leave them empty for now.
 type CIInfo struct {
 	Detected    bool   `json:"detected"`     // whether a CI environment was recognized
 	Name        string `json:"name"`         // e.g. "github-actions", "gitlab-ci", "local"
 	BuildURL    string `json:"build_url"`    // URL of the current build/pipeline, if known
 	BuildNumber string `json:"build_number"` // build/pipeline number, if known
+	Actor       string `json:"actor"`        // user/login that triggered the run
+	Event       string `json:"event"`        // event/source that triggered the run (push, tag, ...)
+	Repository  string `json:"repository"`   // owner/repo slug (join with ServerURL for the repo URL)
+	Workflow    string `json:"workflow"`     // workflow or job name
+	ServerURL   string `json:"server_url"`   // CI server base URL (e.g. https://github.com)
 }
 
 // GitInfo describes the git state of the current working directory.

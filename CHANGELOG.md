@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `git.remote` now has embedded credentials stripped (CI checkouts such as
+  GitLab embed a token in the origin URL) to avoid leaking it into output/state.
+- `CIInfo` gained `actor`, `event`, `repository`, `workflow`, and `server_url`
+  (populated for GitHub Actions and GitLab CI).
+
 ### Added
 
 - Initial `contextinfo` library (`pkg/contextinfo`) exposing `Detect() Info`.

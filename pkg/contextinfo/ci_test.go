@@ -29,6 +29,9 @@ func TestDetectGitHubActions(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "org/repo")
 	t.Setenv("GITHUB_RUN_ID", "123")
 	t.Setenv("GITHUB_RUN_NUMBER", "7")
+	t.Setenv("GITHUB_ACTOR", "octocat")
+	t.Setenv("GITHUB_EVENT_NAME", "push")
+	t.Setenv("GITHUB_WORKFLOW", "deploy")
 
 	ci := detectCI()
 	if !ci.Detected || ci.Name != "github-actions" {
@@ -40,6 +43,10 @@ func TestDetectGitHubActions(t *testing.T) {
 	if ci.BuildNumber != "7" {
 		t.Errorf("build_number = %q, want 7", ci.BuildNumber)
 	}
+	if ci.Actor != "octocat" || ci.Event != "push" || ci.Repository != "org/repo" ||
+		ci.Workflow != "deploy" || ci.ServerURL != "https://github.com" {
+		t.Errorf("extended fields wrong: %+v", ci)
+	}
 }
 
 func TestDetectGitLab(t *testing.T) {
@@ -47,6 +54,11 @@ func TestDetectGitLab(t *testing.T) {
 	t.Setenv("GITLAB_CI", "true")
 	t.Setenv("CI_PIPELINE_URL", "https://gitlab.com/org/repo/-/pipelines/99")
 	t.Setenv("CI_PIPELINE_IID", "9")
+	t.Setenv("GITLAB_USER_LOGIN", "tux")
+	t.Setenv("CI_PIPELINE_SOURCE", "push")
+	t.Setenv("CI_PROJECT_PATH", "org/repo")
+	t.Setenv("CI_JOB_NAME", "deploy")
+	t.Setenv("CI_SERVER_URL", "https://gitlab.com")
 
 	ci := detectCI()
 	if ci.Name != "gitlab-ci" {
@@ -54,6 +66,10 @@ func TestDetectGitLab(t *testing.T) {
 	}
 	if ci.BuildURL == "" || ci.BuildNumber != "9" {
 		t.Errorf("got %+v", ci)
+	}
+	if ci.Actor != "tux" || ci.Event != "push" || ci.Repository != "org/repo" ||
+		ci.Workflow != "deploy" || ci.ServerURL != "https://gitlab.com" {
+		t.Errorf("extended fields wrong: %+v", ci)
 	}
 }
 

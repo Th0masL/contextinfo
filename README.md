@@ -77,14 +77,19 @@ Nested JSON output (`--format=json`):
     "detected": true,
     "name": "github-actions",
     "build_url": "https://github.com/org/repo/actions/runs/123",
-    "build_number": "7"
+    "build_number": "7",
+    "actor": "octocat",
+    "event": "push",
+    "repository": "org/repo",
+    "workflow": "deploy",
+    "server_url": "https://github.com"
   },
   "git": {
     "commit": "a1b2c3d4...",
     "branch": "main",
     "tag": "",
     "dirty": false,
-    "remote": "git@github.com:org/repo.git"
+    "remote": "https://github.com/org/repo"
   },
   "runtime": {
     "os": "linux",
@@ -95,6 +100,11 @@ Nested JSON output (`--format=json`):
 ```
 
 The command exits `0` even when nothing is detected (detection is never fatal).
+
+`ci.actor` / `event` / `repository` / `workflow` / `server_url` are populated for
+**GitHub Actions** and **GitLab CI** (combine `server_url` + `repository` to
+rebuild the repo URL); other platforms currently fill `build_url` / `build_number`
+only.
 
 ### Terraform variables
 
