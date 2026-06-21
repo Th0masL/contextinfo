@@ -62,21 +62,62 @@ func TestCLIVersion(t *testing.T) {
 	}
 }
 
+func TestCLIDefaultIsEnvVar(t *testing.T) {
+	bin := buildCLI(t)
+	out, code := runCLI(t, bin) // no args
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(out, "git_commit=") {
+		t.Errorf("default output should be envvar lines, got:\n%s", out)
+	}
+	if strings.Contains(out, "{") {
+		t.Errorf("default output should not be JSON:\n%s", out)
+	}
+}
+
+func TestCLIEnvVarPrefix(t *testing.T) {
+	bin := buildCLI(t)
+	out, code := runCLI(t, bin, "--format=envvar", "--prefix", "TF_VAR_")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(out, "TF_VAR_git_commit=") {
+		t.Errorf("envvar --prefix not applied:\n%s", out)
+	}
+	// Booleans are bare, strings are single-quoted.
+	if !strings.Contains(out, "TF_VAR_git_dirty=") {
+		t.Errorf("missing TF_VAR_git_dirty:\n%s", out)
+	}
+}
+
 func TestCLIJSON(t *testing.T) {
 	bin := buildCLI(t)
-	for _, args := range [][]string{{}, {"--format=json"}} {
-		out, code := runCLI(t, bin, args...)
-		if code != 0 {
-			t.Fatalf("%v: exit = %d, want 0", args, code)
+	out, code := runCLI(t, bin, "--format=json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	var info map[string]any
+	if err := json.Unmarshal([]byte(out), &info); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	for _, key := range []string{"ci", "git", "runtime"} {
+		if _, ok := info[key]; !ok {
+			t.Errorf("JSON missing %q key", key)
 		}
-		var info map[string]any
-		if err := json.Unmarshal([]byte(out), &info); err != nil {
-			t.Fatalf("%v: output is not valid JSON: %v\n%s", args, err, out)
-		}
-		for _, key := range []string{"ci", "git", "runtime"} {
-			if _, ok := info[key]; !ok {
-				t.Errorf("%v: JSON missing %q key", args, key)
-			}
+	}
+}
+
+func TestCLIHelp(t *testing.T) {
+	bin := buildCLI(t)
+	// --help/-h prints usage and exits 0; flag sends it to stderr, so capture both.
+	out, err := exec.Command(bin, "--help").CombinedOutput()
+	if err != nil {
+		t.Fatalf("--help exited non-zero: %v\n%s", err, out)
+	}
+	for _, want := range []string{"Usage", "Formats", "Examples", "envvar", "-format", "-prefix", "TF_VAR_"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("--help output missing %q\n%s", want, out)
 		}
 	}
 }

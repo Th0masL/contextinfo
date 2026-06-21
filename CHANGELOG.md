@@ -14,10 +14,11 @@ follows [Semantic Versioning](https://semver.org/).
 - Git context detection: commit, branch (with CI fallback when detached), tag,
   dirty state, and origin remote.
 - Runtime detection: OS, arch, hostname.
-- `contextinfo` CLI that prints the detected context as nested JSON, flat JSON
-  (`json-flat`), text, or Terraform variables (`tfvars` HCL / `tfvars-json` JSON).
-- `--prefix` flag for the flat formats (default: no prefix), e.g.
-  `--format=tfvars --prefix TF_VAR_` → `TF_VAR_git_commit`.
-- `Info.FlatJSON(prefix)` / `Info.TFVarsHCL(prefix)` / `Info.TFVarsJSON(prefix)`
-  library methods that flatten the context (HCL output escapes `${`/`%{`).
+- `contextinfo` CLI with formats: `envvar` (**default** — shell `NAME=value`
+  lines), `json` (nested), `json-flat`, `text`, `tfvars` (HCL), `tfvars-json`.
+- `--prefix` flag for the flat/envvar formats (default: no prefix), e.g.
+  `--format=envvar --prefix TF_VAR_` → `TF_VAR_git_commit=...` for Terraform.
+- Rich `--help` with a description, the flags, the format list, and examples.
+- `Info.EnvVars(prefix)` / `Info.FlatJSON(prefix)` / `Info.TFVarsHCL(prefix)` /
+  `Info.TFVarsJSON(prefix)` library methods (HCL/shell output is safely escaped).
 - GoReleaser configuration and CI/release GitHub Actions workflows.

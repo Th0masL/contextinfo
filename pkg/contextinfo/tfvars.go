@@ -82,6 +82,32 @@ func (i Info) TFVarsHCL(prefix string) string {
 	return b.String()
 }
 
+// EnvVars renders the context as shell `NAME=value` lines (one per line),
+// suitable for sourcing into an environment. String values are single-quoted for
+// shell safety (so spaces, URLs, `$`, etc. can't break or inject); booleans are
+// bare `true`/`false`. Each name is prefixed with prefix (use "" for none).
+//
+// To export them for a child process such as terraform:
+//
+//	set -a; eval "$(contextinfo --format=envvar --prefix TF_VAR_)"; set +a
+func (i Info) EnvVars(prefix string) string {
+	var b strings.Builder
+	for _, p := range i.flatten(prefix) {
+		if v, ok := p.val.(bool); ok {
+			fmt.Fprintf(&b, "%s=%t\n", p.key, v)
+			continue
+		}
+		fmt.Fprintf(&b, "%s=%s\n", p.key, shellSingleQuote(fmt.Sprint(p.val)))
+	}
+	return b.String()
+}
+
+// shellSingleQuote wraps s in single quotes, escaping any embedded single quote
+// as '\'' — the result is a single safe shell word.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func hclValue(v any) string {
 	switch x := v.(type) {
 	case bool:

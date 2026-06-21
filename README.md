@@ -32,23 +32,44 @@ go get github.com/Th0masL/contextinfo
 ## CLI usage
 
 ```console
-$ contextinfo                      # nested JSON (default)
+$ contextinfo                      # shell NAME=value lines (default)
+$ contextinfo --format=json        # nested JSON
 $ contextinfo --format=json-flat   # flat JSON (ci.name -> ci_name)
 $ contextinfo --format=text        # aligned key/value text
 $ contextinfo --format=tfvars      # Terraform variables (HCL)
 $ contextinfo --format=tfvars-json # Terraform variables (JSON)
 $ contextinfo --version
+$ contextinfo --help               # full usage + examples
 ```
 
-The flat formats (`json-flat`, `tfvars`, `tfvars-json`) join nested paths with
-`_` and take an optional **`--prefix`**, which is empty by default:
+The flat formats (`envvar`, `json-flat`, `tfvars`, `tfvars-json`) join nested
+paths with `_` and take an optional **`--prefix`**, which is empty by default:
 
 ```console
-$ contextinfo --format=json-flat                       # git_commit, runtime_os, ...
-$ contextinfo --format=tfvars --prefix TF_VAR_         # TF_VAR_git_commit = "..."
+$ contextinfo                                   # ci_name='local', git_commit='...', ...
+$ contextinfo --format=json-flat                # {"git_commit": "...", ...}
+$ contextinfo --format=tfvars --prefix TF_VAR_  # TF_VAR_git_commit = "..."
 ```
 
-Example JSON output:
+### Environment variables (default)
+
+The default `envvar` format prints shell `NAME=value` lines (string values are
+single-quoted for shell safety). Combined with `--prefix TF_VAR_`, you can export
+the context as Terraform input variables for a run:
+
+```console
+$ contextinfo --format=envvar
+ci_name='github-actions'
+git_commit='a1b2c3d4'
+git_dirty=false
+runtime_os='linux'
+
+# export TF_VAR_* and run terraform with the context available:
+$ set -a; eval "$(contextinfo --format=envvar --prefix TF_VAR_)"; set +a
+$ terraform plan      # reads var.git_commit, var.ci_name, ... from the environment
+```
+
+Nested JSON output (`--format=json`):
 
 ```json
 {
