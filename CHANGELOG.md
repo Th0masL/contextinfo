@@ -24,8 +24,9 @@ follows [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Initial `contextinfo` library (`pkg/contextinfo`) exposing `Detect() Info`.
-- CI/CD detection for GitHub Actions, GitLab CI, CircleCI, Jenkins, Travis CI,
-  and Buildkite, plus a generic `CI=true` fallback and `local` default.
+- CI/CD detection for GitHub Actions and GitLab CI (the platforms whose
+  environments have been verified), plus a generic `CI=true` → `unknown` fallback
+  and a `local` default.
 - Git context detection: commit, branch (with CI fallback when detached), tag,
   dirty state, and origin remote.
 - Runtime detection: OS, arch, hostname.

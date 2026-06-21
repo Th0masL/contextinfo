@@ -8,12 +8,11 @@ func clearCI(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
 		// platform markers
-		"CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "JENKINS_URL", "TRAVIS", "BUILDKITE",
+		"CI", "GITHUB_ACTIONS", "GITLAB_CI",
 		// branch/ref hints used by the gitBranch fallback (so tests don't pick
 		// up the real runner's values when they run inside CI)
 		"GITHUB_HEAD_REF", "GITHUB_REF_NAME", "GITHUB_REF_TYPE",
-		"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME", "CIRCLE_BRANCH", "BUILDKITE_BRANCH",
-		"TRAVIS_BRANCH", "BRANCH_NAME",
+		"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME",
 	} {
 		t.Setenv(k, "")
 	}
@@ -78,32 +77,9 @@ func TestDetectGitLab(t *testing.T) {
 	}
 }
 
-func TestDetectCircleCI(t *testing.T) {
-	clearCI(t)
-	t.Setenv("CIRCLECI", "true")
-	t.Setenv("CIRCLE_BUILD_URL", "https://circleci.com/gh/org/repo/42")
-	t.Setenv("CIRCLE_BUILD_NUM", "42")
-
-	ci := detectCI()
-	if ci.Name != "circleci" || ci.BuildNumber != "42" {
-		t.Errorf("got %+v", ci)
-	}
-}
-
-func TestDetectJenkins(t *testing.T) {
-	clearCI(t)
-	t.Setenv("JENKINS_URL", "https://jenkins.example.com/")
-	t.Setenv("BUILD_URL", "https://jenkins.example.com/job/x/5/")
-	t.Setenv("BUILD_NUMBER", "5")
-
-	ci := detectCI()
-	if ci.Name != "jenkins" || ci.BuildNumber != "5" {
-		t.Errorf("got %+v", ci)
-	}
-}
-
 func TestDetectGenericCI(t *testing.T) {
 	clearCI(t)
+	// An unverified/unsupported CI sets CI=true but no platform marker we know.
 	t.Setenv("CI", "true")
 
 	ci := detectCI()

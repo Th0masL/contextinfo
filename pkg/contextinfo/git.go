@@ -72,16 +72,9 @@ func gitBranch() string {
 			return v
 		}
 	}
-	// Branch-only variables (unset on tag builds) for other platforms.
-	for _, k := range []string{
-		"CI_COMMIT_BRANCH", // GitLab: set only on branch pipelines
-		"CIRCLE_BRANCH",    // CircleCI: empty on tag builds
-		"BUILDKITE_BRANCH",
-		"BRANCH_NAME", // Jenkins
-	} {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v
-		}
+	// GitLab: CI_COMMIT_BRANCH is set only on branch pipelines (empty on tags).
+	if v := strings.TrimSpace(os.Getenv("CI_COMMIT_BRANCH")); v != "" {
+		return v
 	}
 	return ""
 }

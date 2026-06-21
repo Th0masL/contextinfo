@@ -160,18 +160,19 @@ value with `CI`, `Git`, and `Runtime` sub-structs.
 
 ## Detected CI platforms
 
+Only platforms whose environment has been verified against real output are
+recognized by name and have their fields populated:
+
 | Platform | Detected via | `name` |
 | --- | --- | --- |
 | GitHub Actions | `GITHUB_ACTIONS=true` | `github-actions` |
 | GitLab CI | `GITLAB_CI=true` | `gitlab-ci` |
-| CircleCI | `CIRCLECI=true` | `circleci` |
-| Jenkins | `JENKINS_URL` set | `jenkins` |
-| Travis CI | `TRAVIS=true` | `travis-ci` |
-| Buildkite | `BUILDKITE=true` | `buildkite` |
-| (other) | `CI=true` | `unknown` |
+| any other CI | `CI=true` | `unknown` |
 | none | — | `local` (`detected=false`) |
 
-`build_url` and `build_number` are populated per platform where available.
+Other CI systems (CircleCI, Jenkins, Travis, Buildkite, …) are reported as
+`unknown` for now — adding them requires reviewing each one's real environment
+variables, not guessing. Contributions welcome.
 
 ## Development
 

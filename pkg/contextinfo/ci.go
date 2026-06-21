@@ -40,9 +40,10 @@ func (d ciDetector) matches() bool {
 	return v != ""
 }
 
-// ciDetectors is ordered: the first match wins. GitHub Actions and GitLab CI
-// populate the full field set; the others currently provide build URL/number
-// only (their remaining fields are left empty until mapped).
+// ciDetectors is ordered: the first match wins. Only platforms whose environment
+// has been verified against real output are recognized by name — currently
+// GitHub Actions and GitLab CI. Any other CI (CI=true) is reported as "unknown"
+// rather than guessing at unverified variables (see detectCI).
 var ciDetectors = []ciDetector{
 	{"github-actions", "GITHUB_ACTIONS", true, func() CIInfo {
 		server := strings.TrimRight(envOr("GITHUB_SERVER_URL", "https://github.com"), "/")
@@ -71,18 +72,6 @@ var ciDetectors = []ciDetector{
 			Workflow:    os.Getenv("CI_JOB_NAME"),
 			ServerURL:   os.Getenv("CI_SERVER_URL"),
 		}
-	}},
-	{"circleci", "CIRCLECI", true, func() CIInfo {
-		return CIInfo{BuildURL: os.Getenv("CIRCLE_BUILD_URL"), BuildNumber: os.Getenv("CIRCLE_BUILD_NUM")}
-	}},
-	{"jenkins", "JENKINS_URL", false, func() CIInfo {
-		return CIInfo{BuildURL: os.Getenv("BUILD_URL"), BuildNumber: os.Getenv("BUILD_NUMBER")}
-	}},
-	{"travis-ci", "TRAVIS", true, func() CIInfo {
-		return CIInfo{BuildURL: os.Getenv("TRAVIS_BUILD_WEB_URL"), BuildNumber: os.Getenv("TRAVIS_BUILD_NUMBER")}
-	}},
-	{"buildkite", "BUILDKITE", true, func() CIInfo {
-		return CIInfo{BuildURL: os.Getenv("BUILDKITE_BUILD_URL"), BuildNumber: os.Getenv("BUILDKITE_BUILD_NUMBER")}
 	}},
 }
 
