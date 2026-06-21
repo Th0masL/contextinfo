@@ -9,9 +9,8 @@ and **host runtime** — as a clean Go library and a standalone binary.
 fails: when something can't be detected (no git, not in CI), the corresponding
 fields are simply left empty.
 
-It's the shared foundation for:
-- [`terraform-provider-contextinfo`](https://github.com/Th0masL/terraform-provider-contextinfo) — exposes detection as a Terraform data source.
-- [`terrarun`](https://github.com/Th0masL/terrarun) — a Terraform/OpenTofu wrapper that injects run context.
+It also backs [`terraform-provider-contextinfo`](https://github.com/Th0masL/terraform-provider-contextinfo),
+which exposes the same detection as a Terraform data source.
 
 ## Install
 

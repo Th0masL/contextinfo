@@ -1,0 +1,127 @@
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+// buildCLI compiles the contextinfo binary into a temp dir and returns its path.
+// It exercises the real executable end-to-end (flag parsing, output, exit codes),
+// which the library unit tests don't cover.
+func buildCLI(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "contextinfo")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput()
+	if err != nil {
+		t.Fatalf("build failed: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// runCLI runs the binary and returns its stdout and exit code.
+func runCLI(t *testing.T, bin string, args ...string) (stdout string, code int) {
+	t.Helper()
+	var so strings.Builder
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout = &so
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if ok := asExitError(err, &ee); ok {
+			return so.String(), ee.ExitCode()
+		}
+		t.Fatalf("run %v: %v", args, err)
+	}
+	return so.String(), 0
+}
+
+func asExitError(err error, target **exec.ExitError) bool {
+	if ee, ok := err.(*exec.ExitError); ok {
+		*target = ee
+		return true
+	}
+	return false
+}
+
+func TestCLIVersion(t *testing.T) {
+	bin := buildCLI(t)
+	out, code := runCLI(t, bin, "--version")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Error("--version printed nothing")
+	}
+}
+
+func TestCLIJSON(t *testing.T) {
+	bin := buildCLI(t)
+	for _, args := range [][]string{{}, {"--format=json"}} {
+		out, code := runCLI(t, bin, args...)
+		if code != 0 {
+			t.Fatalf("%v: exit = %d, want 0", args, code)
+		}
+		var info map[string]any
+		if err := json.Unmarshal([]byte(out), &info); err != nil {
+			t.Fatalf("%v: output is not valid JSON: %v\n%s", args, err, out)
+		}
+		for _, key := range []string{"ci", "git", "runtime"} {
+			if _, ok := info[key]; !ok {
+				t.Errorf("%v: JSON missing %q key", args, key)
+			}
+		}
+	}
+}
+
+func TestCLIText(t *testing.T) {
+	bin := buildCLI(t)
+	out, code := runCLI(t, bin, "--format=text")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	for _, want := range []string{"ci.name", "git.commit", "runtime.os"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q\n%s", want, out)
+		}
+	}
+}
+
+func TestCLITFVars(t *testing.T) {
+	bin := buildCLI(t)
+
+	hcl, code := runCLI(t, bin, "--format=tfvars")
+	if code != 0 {
+		t.Fatalf("tfvars: exit = %d, want 0", code)
+	}
+	if !strings.Contains(hcl, "contextinfo_runtime_os") || !strings.Contains(hcl, " = ") {
+		t.Errorf("tfvars (HCL) output missing expected variable assignment\n%s", hcl)
+	}
+
+	js, code := runCLI(t, bin, "--format=tfvars-json")
+	if code != 0 {
+		t.Fatalf("tfvars-json: exit = %d, want 0", code)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(js), &m); err != nil {
+		t.Fatalf("tfvars-json is not valid JSON: %v\n%s", err, js)
+	}
+	if _, ok := m["contextinfo_runtime_os"]; !ok {
+		t.Errorf("tfvars-json missing contextinfo_runtime_os\n%s", js)
+	}
+}
+
+func TestCLIUnknownFormatFails(t *testing.T) {
+	bin := buildCLI(t)
+	_, code := runCLI(t, bin, "--format=bogus")
+	if code == 0 {
+		t.Error("expected non-zero exit for an unknown format")
+	}
+}
