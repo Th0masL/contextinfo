@@ -26,7 +26,7 @@ type GitInfo struct {
 	Branch string `json:"branch"` // current branch (CI env fallback when detached)
 	Tag    string `json:"tag"`    // tag pointing at HEAD, if any
 	Dirty  bool   `json:"dirty"`  // whether the working tree has uncommitted changes
-	Remote string `json:"remote"` // origin remote URL
+	Remote string `json:"remote"` // origin remote URL (embedded credentials stripped)
 }
 
 // RuntimeInfo describes the host runtime.

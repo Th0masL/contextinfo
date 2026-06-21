@@ -1,6 +1,7 @@
 package contextinfo
 
 import (
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,7 +28,29 @@ func detectGit() GitInfo {
 		Branch: gitBranch(),
 		Tag:    tag,
 		Dirty:  gitDirty(),
-		Remote: remote,
+		Remote: sanitizeRemote(remote),
+	}
+}
+
+// sanitizeRemote strips embedded credentials from an http(s) remote URL. CI
+// checkouts often rewrite origin to include a token (e.g. GitLab's
+// "https://gitlab-ci-token:<token>@gitlab.com/..."), which must never be
+// reported — it would leak into output, tfvars, or Terraform state. SSH and
+// scp-style remotes (git@host:path) carry no secret and are left untouched.
+func sanitizeRemote(raw string) string {
+	if !strings.Contains(raw, "://") {
+		return raw // scp-like (git@host:path): the user is an SSH login, not a secret
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	switch u.Scheme {
+	case "http", "https":
+		u.User = nil // tokens/passwords live in the userinfo of CI checkout URLs
+		return u.String()
+	default:
+		return raw // ssh://, git://: no password in the URL
 	}
 }
 

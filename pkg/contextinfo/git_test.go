@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,6 +68,28 @@ func TestDetectGit(t *testing.T) {
 	}
 	if g := detectGit(); !g.Dirty {
 		t.Error("expected a dirty tree after modification")
+	}
+}
+
+func TestSanitizeRemote(t *testing.T) {
+	cases := map[string]string{
+		// GitLab CI rewrites origin with the job token — must be stripped.
+		"https://gitlab-ci-token:secrettoken@gitlab.com/o/r.git": "https://gitlab.com/o/r.git",
+		"https://user:pa55w0rd@example.com/o/r.git":              "https://example.com/o/r.git",
+		// No credentials / not http(s): left as-is.
+		"https://github.com/o/r.git":   "https://github.com/o/r.git",
+		"git@github.com:o/r.git":       "git@github.com:o/r.git",
+		"ssh://git@gitlab.com/o/r.git": "ssh://git@gitlab.com/o/r.git",
+		"":                             "",
+	}
+	for in, want := range cases {
+		got := sanitizeRemote(in)
+		if got != want {
+			t.Errorf("sanitizeRemote(%q) = %q, want %q", in, got, want)
+		}
+		if strings.Contains(got, "secrettoken") || strings.Contains(got, "pa55w0rd") {
+			t.Errorf("sanitizeRemote(%q) leaked a credential: %q", in, got)
+		}
 	}
 }
 
