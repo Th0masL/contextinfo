@@ -14,14 +14,10 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  create:
-  delete:
   release:
     types: [published]
   schedule:
     - cron: "0 6 * * 1" # weekly, to capture the scheduled-event environment
-  issues:
-  issue_comment:
 
 permissions:
   contents: read
