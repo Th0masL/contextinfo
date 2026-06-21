@@ -1,0 +1,14 @@
+# GoReleaser output
+/dist/
+
+# Compiled binary (if built at the repo root)
+/contextinfo
+
+# Test / coverage output
+*.out
+coverage.out
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store

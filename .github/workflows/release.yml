@@ -1,0 +1,47 @@
+name: Release
+
+# Builds cross-platform binaries with GoReleaser and attaches them (plus a
+# checksums file) to a GitHub Release on every "v*" tag.
+#
+# Checksum signing is optional: it runs only when GPG_PRIVATE_KEY is configured,
+# otherwise the release is published unsigned. (Set GPG_PRIVATE_KEY + PASSPHRASE
+# secrets to enable signing.)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to create the GitHub release
+    env:
+      HAS_GPG: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # GoReleaser needs full history/tags
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Import GPG key
+        if: env.HAS_GPG == 'true'
+        uses: crazy-max/ghaction-import-gpg@v7
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean ${{ env.HAS_GPG != 'true' && '--skip=sign' || '' }}
+        env:
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
