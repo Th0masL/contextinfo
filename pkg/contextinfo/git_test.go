@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-// newRepo creates a temporary git repository with one committed file and an
-// origin remote, and returns its path. It skips the test if git is missing.
+// newRepo creates a temporary git repository on branch "main" with one committed
+// file and an scp-style origin remote, and returns its path. It skips the test
+// if git is missing.
 func newRepo(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -20,16 +21,18 @@ func newRepo(t *testing.T) string {
 	runGit(t, dir, "config", "user.email", "t@e.com")
 	runGit(t, dir, "config", "user.name", "T")
 	runGit(t, dir, "config", "commit.gpgsign", "false")
-	runGit(t, dir, "config", "tag.gpgsign", "false") // ignore any global tag.gpgSign
-	runGit(t, dir, "remote", "add", "origin", "https://example.com/org/repo.git")
+	runGit(t, dir, "config", "tag.gpgsign", "false")
+	runGit(t, dir, "remote", "add", "origin", "git@github.com:acme/widgets.git")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-q", "-m", "init")
+	runGit(t, dir, "branch", "-M", "main") // deterministic branch name across git versions
 	return dir
 }
 
+// runGit runs a git command in dir and fails the test on a non-zero exit.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -39,69 +42,72 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-func TestDetectGit(t *testing.T) {
+// On a real repo the git helpers report the commit, branch, clean/dirty state,
+// origin remote, and tag.
+func TestGitOnRepo(t *testing.T) {
 	dir := newRepo(t)
 	t.Chdir(dir)
-	clearCI(t)
 
-	g := detectGit()
-	if g.Commit == "" || g.Branch == "" {
-		t.Fatalf("commit/branch empty: %+v", g)
+	if sha := gitOutput("rev-parse", "HEAD"); len(sha) != 40 {
+		t.Errorf("sha = %q (len %d), want 40 hex chars", sha, len(sha))
 	}
-	if g.Dirty {
+	if b := gitBranch(""); b != "main" {
+		t.Errorf("branch = %q, want main", b)
+	}
+	if gitDirty() {
 		t.Error("expected a clean tree")
 	}
-	if g.Remote != "https://example.com/org/repo.git" {
-		t.Errorf("remote = %q", g.Remote)
+	if got := gitRemoteURL(); got != "git@github.com:acme/widgets.git" {
+		t.Errorf("remote = %q", got)
 	}
-	if g.Tag != "" {
-		t.Errorf("unexpected tag %q", g.Tag)
+	if got := gitOutput("describe", "--tags", "--exact-match"); got != "" {
+		t.Errorf("unexpected tag %q", got)
 	}
 
 	runGit(t, dir, "tag", "v1.0.0")
-	if g := detectGit(); g.Tag != "v1.0.0" {
-		t.Errorf("tag = %q, want v1.0.0", g.Tag)
+	if got := gitOutput("describe", "--tags", "--exact-match"); got != "v1.0.0" {
+		t.Errorf("tag = %q, want v1.0.0", got)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if g := detectGit(); !g.Dirty {
+	if !gitDirty() {
 		t.Error("expected a dirty tree after modification")
 	}
 }
 
-func TestGitBranchSkipsTagRefs(t *testing.T) {
+// On a detached HEAD (as in CI) symbolic-ref fails, so gitBranch returns the
+// supplied hint, or "" when there is none.
+func TestGitBranchDetachedUsesHint(t *testing.T) {
 	dir := newRepo(t)
 	t.Chdir(dir)
-	clearCI(t)
-	// Detach HEAD to mimic a CI checkout (symbolic-ref then fails -> fallback).
-	runGit(t, dir, "checkout", "--detach")
+	runGit(t, dir, "checkout", "--detach") // mimic a CI checkout
 
-	// Tag event (release or tag push): ref type is "tag" -> no branch.
-	t.Setenv("GITHUB_REF_TYPE", "tag")
-	t.Setenv("GITHUB_REF_NAME", "v1.2.3")
-	if got := gitBranch(); got != "" {
-		t.Errorf("tag event: branch = %q, want empty (it's a tag, not a branch)", got)
+	if b := gitBranch("feature/x"); b != "feature/x" {
+		t.Errorf("detached: branch = %q, want hint feature/x", b)
 	}
-
-	// Branch event: ref type is "branch" -> the branch name.
-	t.Setenv("GITHUB_REF_TYPE", "branch")
-	t.Setenv("GITHUB_REF_NAME", "main")
-	if got := gitBranch(); got != "main" {
-		t.Errorf("branch event: branch = %q, want main", got)
-	}
-
-	// GitLab tag pipeline leaves CI_COMMIT_BRANCH empty (only CI_COMMIT_REF_NAME
-	// holds the tag), so the branch must stay empty.
-	t.Setenv("GITHUB_REF_TYPE", "")
-	t.Setenv("GITHUB_REF_NAME", "")
-	t.Setenv("CI_COMMIT_REF_NAME", "v1.2.3")
-	if got := gitBranch(); got != "" {
-		t.Errorf("gitlab tag pipeline: branch = %q, want empty", got)
+	if b := gitBranch(""); b != "" {
+		t.Errorf("detached without hint: branch = %q, want empty", b)
 	}
 }
 
+// Outside a repository the git helpers return empty/false rather than erroring.
+func TestGitOutsideRepo(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if sha := gitOutput("rev-parse", "HEAD"); sha != "" {
+		t.Errorf("sha outside a repo = %q, want empty", sha)
+	}
+	if gitDirty() {
+		t.Error("dirty outside a repo should be false")
+	}
+	if r := gitRemoteURL(); r != "" {
+		t.Errorf("remote outside a repo = %q, want empty", r)
+	}
+}
+
+// Credentials embedded in an http(s) remote are stripped; other forms are left
+// untouched. The token must never survive into the output.
 func TestSanitizeRemote(t *testing.T) {
 	cases := map[string]string{
 		// GitLab CI rewrites origin with the job token — must be stripped.
@@ -124,12 +130,45 @@ func TestSanitizeRemote(t *testing.T) {
 	}
 }
 
-func TestDetectGitOutsideRepo(t *testing.T) {
-	t.Chdir(t.TempDir())
-	clearCI(t)
+// remoteHostPath splits scp-style, ssh://, and https:// remotes into host and
+// owner/repo, dropping the .git suffix and any port, and returns empty on junk.
+func TestRemoteHostPath(t *testing.T) {
+	cases := []struct{ in, host, path string }{
+		{"git@github.com:acme/widgets.git", "github.com", "acme/widgets"},
+		{"https://github.com/acme/widgets.git", "github.com", "acme/widgets"},
+		{"https://github.com/acme/widgets", "github.com", "acme/widgets"},
+		{"ssh://git@gitlab.com/grp/sub/proj.git", "gitlab.com", "grp/sub/proj"},
+		{"ssh://git@example.com:2222/o/r.git", "example.com", "o/r"},
+		{"git@gitlab.com:grp/sub/proj.git", "gitlab.com", "grp/sub/proj"},
+		{"", "", ""},
+		{"not a url", "", ""},
+	}
+	for _, c := range cases {
+		h, p := remoteHostPath(c.in)
+		if h != c.host || p != c.path {
+			t.Errorf("remoteHostPath(%q) = (%q, %q), want (%q, %q)", c.in, h, p, c.host, c.path)
+		}
+	}
+}
 
-	g := detectGit()
-	if g.Commit != "" || g.Remote != "" || g.Dirty {
-		t.Errorf("expected empty git info outside a repo, got %+v", g)
+// httpsRepoURL builds the web URL and repoSlug the owner/repo path; neither may
+// leak a credential even from an unsanitized token URL.
+func TestHTTPSRepoURLAndSlug(t *testing.T) {
+	cases := []struct{ remote, url, slug string }{
+		{"git@github.com:acme/widgets.git", "https://github.com/acme/widgets", "acme/widgets"},
+		// Even an unsanitized token URL must not leak credentials into the web URL.
+		{"https://gitlab-ci-token:tok@gitlab.com/o/r.git", "https://gitlab.com/o/r", "o/r"},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		if got := httpsRepoURL(c.remote); got != c.url {
+			t.Errorf("httpsRepoURL(%q) = %q, want %q", c.remote, got, c.url)
+		}
+		if strings.Contains(httpsRepoURL(c.remote), "@") {
+			t.Errorf("httpsRepoURL(%q) leaked a credential", c.remote)
+		}
+		if got := repoSlug(c.remote); got != c.slug {
+			t.Errorf("repoSlug(%q) = %q, want %q", c.remote, got, c.slug)
+		}
 	}
 }

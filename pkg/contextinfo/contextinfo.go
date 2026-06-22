@@ -1,55 +1,102 @@
-// Package contextinfo detects the execution context of a process: the CI/CD
-// platform, git state of the working directory, and host runtime.
+// Package contextinfo detects the execution context of a process: the git state
+// of the working directory, the user/event/repository behind the run, and (when
+// present) the CI/CD platform.
+//
+// Detection is local-first: branch, commit, tag, dirty state, repository URL,
+// actor, and event are derived from git and the OS, so contextinfo behaves the
+// same whether or not it runs in CI. CI variables only augment or override those
+// values where they are more authoritative — the branch when HEAD is detached,
+// the triggering user, the repository slug, the build URL, and so on.
 //
 // It has no external dependencies and is safe to call anywhere — detection
 // failures (no git, not in CI, ...) yield empty fields rather than errors.
 package contextinfo
 
-// Info is the full detected context returned by Detect.
+import "os"
+
+// Info is the detected context as a single flat set of fields. Each field is
+// resolved from the best available source: git and the OS locally, with CI
+// variables taking precedence where they are more authoritative.
 type Info struct {
-	CI      CIInfo      `json:"ci"`
-	Git     GitInfo     `json:"git"`
-	Runtime RuntimeInfo `json:"runtime"`
+	// Git / repository state (detected locally, augmented by CI).
+	GitBranch         string `json:"git_branch"`           // current branch ("" on a tag/detached checkout)
+	GitCommitSHA      string `json:"git_commit_sha"`       // full HEAD commit SHA
+	GitCommitSHAShort string `json:"git_commit_sha_short"` // first 7 chars of git_commit_sha
+	GitTag            string `json:"git_tag"`              // tag pointing at HEAD ("" if none)
+	GitDirty          bool   `json:"git_dirty"`            // working tree has uncommitted changes
+	GitChecksum       string `json:"git_checksum"`         // SHA-256 of non-ignored working-dir files ("" if disabled)
+	GitRepoURL        string `json:"git_repo_url"`         // HTTPS web URL of the repository
+	GitRepository     string `json:"git_repository"`       // "owner/repo" slug
+	Actor             string `json:"actor"`                // CI user that triggered the run, else local OS user
+	Event             string `json:"event"`                // CI event/source (push, release, ...), else "manual"
+
+	// CI/CD platform (empty when not running in CI).
+	CIPlatform    string `json:"ci_platform"`     // "github-actions", "gitlab-ci", "unknown", or "" locally
+	CIBuildURL    string `json:"ci_build_url"`    // URL of the current build/pipeline
+	CIBuildNumber string `json:"ci_build_number"` // build/pipeline number
+	CIWorkflow    string `json:"ci_workflow"`     // workflow or job name
+
+	// Host runtime.
+	RuntimeHostname string `json:"runtime_hostname"` // os.Hostname()
 }
 
-// CIInfo describes the detected CI/CD environment. Only GitHub Actions and
-// GitLab CI are recognized by name and have their environments verified; any
-// other CI is reported as "unknown" (and the detailed fields are left empty)
-// rather than guessing at unverified variables.
-type CIInfo struct {
-	Detected    bool   `json:"detected"`     // whether a CI environment was recognized
-	Name        string `json:"name"`         // "github-actions", "gitlab-ci", "unknown", or "local"
-	BuildURL    string `json:"build_url"`    // URL of the current build/pipeline, if known
-	BuildNumber string `json:"build_number"` // build/pipeline number, if known
-	Actor       string `json:"actor"`        // user/login that triggered the run
-	Event       string `json:"event"`        // event/source that triggered the run (push, tag, ...)
-	Repository  string `json:"repository"`   // owner/repo slug (join with ServerURL for the repo URL)
-	Workflow    string `json:"workflow"`     // workflow or job name
-	ServerURL   string `json:"server_url"`   // CI server base URL (e.g. https://github.com)
+// Option configures Detect.
+type Option func(*options)
+
+// options holds the resolved configuration for a Detect call (see Option).
+type options struct {
+	checksum bool
 }
 
-// GitInfo describes the git state of the current working directory.
-type GitInfo struct {
-	Commit string `json:"commit"` // HEAD commit SHA
-	Branch string `json:"branch"` // current branch (CI env fallback when detached)
-	Tag    string `json:"tag"`    // tag pointing at HEAD, if any
-	Dirty  bool   `json:"dirty"`  // whether the working tree has uncommitted changes
-	Remote string `json:"remote"` // origin remote URL (embedded credentials stripped)
+// WithoutChecksum disables computing git_checksum. By default Detect computes it,
+// which reads every non-ignored file in the working directory; disable it when
+// detection must stay cheap on a very large tree.
+func WithoutChecksum() Option {
+	return func(o *options) { o.checksum = false }
 }
 
-// RuntimeInfo describes the host runtime.
-type RuntimeInfo struct {
-	OS       string `json:"os"`       // GOOS
-	Arch     string `json:"arch"`     // GOARCH
-	Hostname string `json:"hostname"` // os.Hostname()
-}
-
-// Detect gathers CI, git, and runtime context from the current process and
-// working directory. It never fails; unavailable values are left empty.
-func Detect() Info {
-	return Info{
-		CI:      detectCI(),
-		Git:     detectGit(),
-		Runtime: detectRuntime(),
+// Detect gathers context from the current process and working directory. It
+// never fails; unavailable values are left empty. By default it computes
+// git_checksum; pass WithoutChecksum to skip that work.
+func Detect(opts ...Option) Info {
+	o := options{checksum: true}
+	for _, opt := range opts {
+		opt(&o)
 	}
+	return detect(os.Getenv, o)
+}
+
+// detect is the env-injectable core of Detect: getenv supplies CI/CD variables
+// (os.Getenv in production, a fixture map in tests), while git and host state
+// come from the current working directory and machine.
+func detect(getenv func(string) string, o options) Info {
+	ci := detectCI(getenv)
+
+	sha := gitOutput("rev-parse", "HEAD")
+	short := sha
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	remote := gitRemoteURL()
+
+	info := Info{
+		GitBranch:         gitBranch(ci.branchHint),
+		GitCommitSHA:      sha,
+		GitCommitSHAShort: short,
+		GitTag:            gitOutput("describe", "--tags", "--exact-match"),
+		GitDirty:          gitDirty(),
+		GitRepoURL:        firstNonEmpty(ci.repoURL, httpsRepoURL(remote)),
+		GitRepository:     firstNonEmpty(ci.repository, repoSlug(remote)),
+		Actor:             firstNonEmpty(ci.actor, osUser()),
+		Event:             firstNonEmpty(ci.event, "manual"),
+		CIPlatform:        ci.platform,
+		CIBuildURL:        ci.buildURL,
+		CIBuildNumber:     ci.buildNumber,
+		CIWorkflow:        ci.workflow,
+		RuntimeHostname:   hostname(),
+	}
+	if o.checksum {
+		info.GitChecksum = gitChecksum()
+	}
+	return info
 }

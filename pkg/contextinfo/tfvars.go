@@ -12,28 +12,25 @@ type flatPair struct {
 	val any
 }
 
-// flatten returns the context as ordered key/value pairs, with the nested path
-// joined by "_" (ci_name, git_commit, runtime_os, ...) and each key prefixed
-// with prefix (use "" for none).
+// flatten returns the context as ordered key/value pairs (matching the Info
+// field order), each key prefixed with prefix (use "" for none).
 func (i Info) flatten(prefix string) []flatPair {
 	return []flatPair{
-		{prefix + "ci_detected", i.CI.Detected},
-		{prefix + "ci_name", i.CI.Name},
-		{prefix + "ci_build_url", i.CI.BuildURL},
-		{prefix + "ci_build_number", i.CI.BuildNumber},
-		{prefix + "ci_actor", i.CI.Actor},
-		{prefix + "ci_event", i.CI.Event},
-		{prefix + "ci_repository", i.CI.Repository},
-		{prefix + "ci_workflow", i.CI.Workflow},
-		{prefix + "ci_server_url", i.CI.ServerURL},
-		{prefix + "git_commit", i.Git.Commit},
-		{prefix + "git_branch", i.Git.Branch},
-		{prefix + "git_tag", i.Git.Tag},
-		{prefix + "git_dirty", i.Git.Dirty},
-		{prefix + "git_remote", i.Git.Remote},
-		{prefix + "runtime_os", i.Runtime.OS},
-		{prefix + "runtime_arch", i.Runtime.Arch},
-		{prefix + "runtime_hostname", i.Runtime.Hostname},
+		{prefix + "git_branch", i.GitBranch},
+		{prefix + "git_commit_sha", i.GitCommitSHA},
+		{prefix + "git_commit_sha_short", i.GitCommitSHAShort},
+		{prefix + "git_tag", i.GitTag},
+		{prefix + "git_dirty", i.GitDirty},
+		{prefix + "git_checksum", i.GitChecksum},
+		{prefix + "git_repo_url", i.GitRepoURL},
+		{prefix + "git_repository", i.GitRepository},
+		{prefix + "actor", i.Actor},
+		{prefix + "event", i.Event},
+		{prefix + "ci_platform", i.CIPlatform},
+		{prefix + "ci_build_url", i.CIBuildURL},
+		{prefix + "ci_build_number", i.CIBuildNumber},
+		{prefix + "ci_workflow", i.CIWorkflow},
+		{prefix + "runtime_hostname", i.RuntimeHostname},
 	}
 }
 
@@ -113,6 +110,8 @@ func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// hclValue renders a flattened value as an HCL literal: a bare true/false for
+// booleans, and a quoted, escaped string for everything else.
 func hclValue(v any) string {
 	switch x := v.(type) {
 	case bool:
