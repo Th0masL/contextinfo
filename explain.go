@@ -1,5 +1,7 @@
 package contextinfo
 
+import "github.com/Th0masL/contextinfo/internal/ci"
+
 // buildExplained assembles the per-field source notes used for the
 // "<field>_explained" companions. It takes the values and sources already
 // computed during detection (ci + its source labels, the resolved info, the
@@ -8,7 +10,7 @@ package contextinfo
 // the per-provider detectors (ciSrc), so there is no duplicated var-name table to
 // drift. The notes name variables and commands, not their contents, so explaining
 // never exposes secrets.
-func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc string, inRepo, checksum bool) map[string]string {
+func buildExplained(cid ci.Data, ciSrc map[string]string, info Info, branchSrc string, inRepo, checksum bool) map[string]string {
 	tag := "git describe --tags --exact-match"
 	if info.GitTag == "" {
 		if inRepo {
@@ -35,7 +37,7 @@ func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc str
 	}
 
 	platform := "not in CI"
-	if ci.platform != "" {
+	if cid.Platform != "" {
 		platform = ciSrc["ci_platform"]
 	}
 
@@ -46,10 +48,10 @@ func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc str
 		"git_tag":              tag,
 		"git_dirty":            dirty,
 		"files_checksum":       cksum,
-		"git_repo_url":         pickSource(info.GitRepoURL, ci.repoURL, ciSrc["git_repo_url"], "git remote origin (ssh->https)", "none (no origin remote)"),
-		"git_repository":       pickSource(info.GitRepository, ci.repository, ciSrc["git_repository"], "git remote origin", "none (no origin remote)"),
-		"actor":                pickSource(info.Actor, ci.actor, ciSrc["actor"], "OS user", "none"),
-		"event":                eventSource(ci.event, ciSrc["event"], ci.platform != ""),
+		"git_repo_url":         pickSource(info.GitRepoURL, cid.RepoURL, ciSrc["git_repo_url"], "git remote origin (ssh->https)", "none (no origin remote)"),
+		"git_repository":       pickSource(info.GitRepository, cid.Repository, ciSrc["git_repository"], "git remote origin", "none (no origin remote)"),
+		"actor":                pickSource(info.Actor, cid.Actor, ciSrc["actor"], "OS user", "none"),
+		"event":                eventSource(cid.Event, ciSrc["event"], cid.Platform != ""),
 		"ci_platform":          platform,
 		"ci_build_url":         ciOr(info.CIBuildURL, ciSrc["ci_build_url"]),
 		"ci_build_number":      ciOr(info.CIBuildNumber, ciSrc["ci_build_number"]),

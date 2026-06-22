@@ -349,9 +349,11 @@ Detection options: `contextinfo.WithDir(path)` inspects another directory and
 global state, so it is safe to call concurrently for different directories (e.g.
 one goroutine per Terraform stack). For long-running embedders,
 `contextinfo.DetectContext(ctx, opts...)` bounds the git subprocesses with a
-context (cancel/timeout). To apply deploy rules in code, load them with the
-config subpackage and pass `contextinfo.WithDeployRules(...)`, or call
-`contextinfo.Resolve(rules, info)` directly.
+context (cancel/timeout). Deploy rules can be loaded from a `.contextinfo.yaml`
+(via the `config` subpackage) **or built in code** with the
+[`deploy`](deploy) package — handy for an embedder such as a Terraform provider
+that decodes rules from HCL. Apply them with `contextinfo.WithDeployRules(...)`
+or `contextinfo.Resolve(rules, info)`.
 
 Rendering is separate from detection: `EnvVars`, `FlatJSON`, `TFVarsHCL`, and
 `Text` each take a `contextinfo.RenderOptions{Prefix, Explain}` — so the same
@@ -393,7 +395,7 @@ go run ./cmd/contextinfo
 ```
 
 The CI-detection tests run against committed environment dumps in
-[`testdata/env`](testdata/env) (captured from
+[`internal/ci/testdata/env`](internal/ci/testdata/env) (captured from
 real GitHub Actions and GitLab CI runs), so the per-provider mapping is checked
 against actual platform output rather than assumptions.
 

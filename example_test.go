@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Th0masL/contextinfo"
+	"github.com/Th0masL/contextinfo/deploy"
 )
 
 // Detect resolves the run context from git, the OS, and (in CI) the platform.
@@ -11,6 +12,25 @@ import (
 func ExampleDetect() {
 	info := contextinfo.Detect()
 	fmt.Println(info.GitRepository, info.GitBranch, info.Event)
+}
+
+// Deploy rules can be built in code (e.g. by a Terraform provider that decodes
+// them from HCL) using the deploy package, then applied with Resolve — no
+// .contextinfo.yaml required.
+func ExampleResolve() {
+	main, _ := deploy.GlobPattern("main")
+	rules := deploy.Rules{
+		Rules: []deploy.Rule{{
+			If:  deploy.Cond{Fields: []deploy.FieldMatch{{Field: "branch", Patterns: []deploy.Pattern{main}}}},
+			Set: map[string]string{"env_name": "prod"},
+		}},
+		Default: map[string]string{"env_name": "dev"},
+	}
+	fmt.Println(contextinfo.Resolve(rules, contextinfo.Info{GitBranch: "main"})["env_name"])
+	fmt.Println(contextinfo.Resolve(rules, contextinfo.Info{GitBranch: "feature/x"})["env_name"])
+	// Output:
+	// prod
+	// dev
 }
 
 // Rendering is separate from detection: each method takes a RenderOptions, so the

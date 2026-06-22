@@ -1,27 +1,27 @@
-package contextinfo
+package ci
 
 import "strings"
 
 // githubData extracts CI context from GitHub Actions environment variables, plus
 // a per-field map of the variable(s) each value came from (for --explain).
 // See https://docs.github.com/actions/learn-github-actions/variables.
-func githubData(env func(string) string) (ciData, map[string]string) {
+func githubData(env func(string) string) (Data, map[string]string) {
 	server := strings.TrimRight(envOr(env, "GITHUB_SERVER_URL", "https://github.com"), "/")
 	repo := env("GITHUB_REPOSITORY")
 
-	d := ciData{
-		platform:    "github-actions",
-		actor:       env("GITHUB_ACTOR"),
-		event:       githubEvent(env),
-		repository:  repo,
-		buildNumber: env("GITHUB_RUN_NUMBER"),
-		workflow:    env("GITHUB_WORKFLOW"),
-		branchHint:  githubBranchHint(env),
+	d := Data{
+		Platform:    "github-actions",
+		Actor:       env("GITHUB_ACTOR"),
+		Event:       githubEvent(env),
+		Repository:  repo,
+		BuildNumber: env("GITHUB_RUN_NUMBER"),
+		Workflow:    env("GITHUB_WORKFLOW"),
+		BranchHint:  githubBranchHint(env),
 	}
 	if repo != "" {
-		d.repoURL = server + "/" + repo
+		d.RepoURL = server + "/" + repo
 		if runID := env("GITHUB_RUN_ID"); runID != "" {
-			d.buildURL = server + "/" + repo + "/actions/runs/" + runID
+			d.BuildURL = server + "/" + repo + "/actions/runs/" + runID
 		}
 	}
 

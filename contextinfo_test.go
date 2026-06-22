@@ -1,6 +1,7 @@
 package contextinfo
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -78,6 +79,18 @@ func TestDetectOutsideRepo(t *testing.T) {
 	}
 	if ciInfo.GitCommitSHA != "" {
 		t.Errorf("git_commit_sha = %q, want empty (not a repo)", ciInfo.GitCommitSHA)
+	}
+}
+
+// DetectContext honours a cancelled context: the git subprocesses fail, so the
+// git-derived fields come back empty rather than the call hanging or panicking.
+func TestDetectContextCancelled(t *testing.T) {
+	dir := newRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before detection runs
+	info := DetectContext(ctx, WithDir(dir))
+	if info.GitCommitSHA != "" {
+		t.Errorf("cancelled DetectContext should yield empty git fields, got sha %q", info.GitCommitSHA)
 	}
 }
 

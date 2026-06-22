@@ -1,4 +1,4 @@
-package contextinfo
+package ci
 
 import (
 	"bufio"
@@ -35,7 +35,7 @@ func loadEnvFixture(t *testing.T, path string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
-// TestGoldenFixtures runs detectCI over real CI environment dumps captured in
+// TestGoldenFixtures runs Detect over real CI environment dumps captured in
 // testdata/env (see the test-printenv sandbox repos). It pins the discriminating
 // fields (platform/event/branchHint) and requires the run-specific fields to be
 // populated, so a regression in the per-provider env mapping is caught.
@@ -89,15 +89,15 @@ func TestGoldenFixtures(t *testing.T) {
 		}
 		seen[name] = true
 		t.Run(name, func(t *testing.T) {
-			d, _ := detectCI(loadEnvFixture(t, path))
-			if d.platform != w.platform {
-				t.Errorf("platform = %q, want %q", d.platform, w.platform)
+			d, _ := Detect(loadEnvFixture(t, path))
+			if d.Platform != w.platform {
+				t.Errorf("platform = %q, want %q", d.Platform, w.platform)
 			}
-			if d.event != w.event {
-				t.Errorf("event = %q, want %q", d.event, w.event)
+			if d.Event != w.event {
+				t.Errorf("event = %q, want %q", d.Event, w.event)
 			}
-			if d.branchHint != w.branchHint {
-				t.Errorf("branchHint = %q, want %q", d.branchHint, w.branchHint)
+			if d.BranchHint != w.branchHint {
+				t.Errorf("branchHint = %q, want %q", d.BranchHint, w.branchHint)
 			}
 			// Run-specific values: require them to be present for a CI fixture.
 			// repoURL is omitted — it's provider-dependent (CircleCI's
@@ -105,18 +105,18 @@ func TestGoldenFixtures(t *testing.T) {
 			// the local git remote). The per-provider unit tests assert it where it
 			// applies.
 			for label, v := range map[string]string{
-				"actor":       d.actor,
-				"repository":  d.repository,
-				"buildURL":    d.buildURL,
-				"buildNumber": d.buildNumber,
-				"workflow":    d.workflow,
+				"actor":       d.Actor,
+				"repository":  d.Repository,
+				"buildURL":    d.BuildURL,
+				"buildNumber": d.BuildNumber,
+				"workflow":    d.Workflow,
 			} {
 				if v == "" {
 					t.Errorf("%s is empty; expected a value from the fixture", label)
 				}
 			}
-			if strings.Contains(d.repoURL, "@") {
-				t.Errorf("repoURL contains '@' (possible leaked credential): %q", d.repoURL)
+			if strings.Contains(d.RepoURL, "@") {
+				t.Errorf("repoURL contains '@' (possible leaked credential): %q", d.RepoURL)
 			}
 		})
 	}

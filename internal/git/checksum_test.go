@@ -1,4 +1,4 @@
-package contextinfo
+package git
 
 import (
 	"context"
@@ -11,14 +11,15 @@ import (
 
 // The checksum is deterministic for an unchanged tree and moves whenever a
 // tracked file is edited or a new non-ignored file appears.
-func TestFilesChecksumStableAndSensitive(t *testing.T) {
+func TestChecksumStableAndSensitive(t *testing.T) {
 	dir := newRepo(t)
+	ctx := context.Background()
 
-	sum1 := filesChecksum(context.Background(), dir)
+	sum1 := Checksum(ctx, dir)
 	if sum1 == "" {
 		t.Fatal("empty checksum in a repo")
 	}
-	if filesChecksum(context.Background(), dir) != sum1 {
+	if Checksum(ctx, dir) != sum1 {
 		t.Error("checksum is not stable across runs with no change")
 	}
 
@@ -26,7 +27,7 @@ func TestFilesChecksumStableAndSensitive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sum2 := filesChecksum(context.Background(), dir)
+	sum2 := Checksum(ctx, dir)
 	if sum2 == sum1 {
 		t.Error("checksum unchanged after editing a tracked file")
 	}
@@ -35,33 +36,33 @@ func TestFilesChecksumStableAndSensitive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if filesChecksum(context.Background(), dir) == sum2 {
+	if Checksum(ctx, dir) == sum2 {
 		t.Error("checksum unchanged after adding an untracked file")
 	}
 }
 
 // Files excluded by .gitignore must not affect the checksum.
-func TestFilesChecksumIgnoresGitignored(t *testing.T) {
+func TestChecksumIgnoresGitignored(t *testing.T) {
 	dir := newRepo(t)
+	ctx := context.Background()
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	base := filesChecksum(context.Background(), dir) // .gitignore itself is a non-ignored file -> counted once
+	base := Checksum(ctx, dir) // .gitignore itself is a non-ignored file -> counted once
 
 	if err := os.WriteFile(filepath.Join(dir, "ignored.txt"), []byte("secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if filesChecksum(context.Background(), dir) != base {
+	if Checksum(ctx, dir) != base {
 		t.Error("checksum changed after adding a git-ignored file")
 	}
 }
 
 // A symlink contributes its target's content, so editing the linked file moves
 // the checksum — the case Terraform stacks rely on when symlinking shared files.
-func TestFilesChecksumFollowsSymlinkTarget(t *testing.T) {
+func TestChecksumFollowsSymlinkTarget(t *testing.T) {
 	dir := newRepo(t)
-	// A shared file outside the repo working tree (e.g. a Terraform module
-	// symlinked into a stack from a parent folder).
+	ctx := context.Background()
 	shared := filepath.Join(t.TempDir(), "shared.tf")
 	if err := os.WriteFile(shared, []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -71,49 +72,47 @@ func TestFilesChecksumFollowsSymlinkTarget(t *testing.T) {
 	}
 	runGit(t, dir, "add", "shared.tf")
 
-	sum1 := filesChecksum(context.Background(), dir)
+	sum1 := Checksum(ctx, dir)
 	if sum1 == "" {
 		t.Fatal("empty checksum")
 	}
-	// Changing the TARGET's content must move the checksum (the link is followed).
 	if err := os.WriteFile(shared, []byte("v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if filesChecksum(context.Background(), dir) == sum1 {
+	if Checksum(ctx, dir) == sum1 {
 		t.Error("checksum did not change when the symlink target content changed")
 	}
 }
 
 // A dangling symlink must be tolerated (skipped, like sha256sum), not error.
-func TestFilesChecksumBrokenSymlinkSafe(t *testing.T) {
+func TestChecksumBrokenSymlinkSafe(t *testing.T) {
 	dir := newRepo(t)
 	if err := os.Symlink(filepath.Join(dir, "does-not-exist"), filepath.Join(dir, "dangling")); err != nil {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
 	runGit(t, dir, "add", "dangling")
-	if filesChecksum(context.Background(), dir) == "" {
+	if Checksum(context.Background(), dir) == "" {
 		t.Error("a broken symlink should not blank the checksum")
 	}
 }
 
 // Outside a git repository the checksum is empty (it has no file list to hash).
-func TestFilesChecksumOutsideRepo(t *testing.T) {
-	if s := filesChecksum(context.Background(), t.TempDir()); s != "" {
+func TestChecksumOutsideRepo(t *testing.T) {
+	if s := Checksum(context.Background(), t.TempDir()); s != "" {
 		t.Errorf("checksum outside a repo = %q, want empty", s)
 	}
 }
 
-// filesChecksum(dir) must equal the documented shell pipeline run in dir,
-// byte-for-byte. This is the contract: anyone can reproduce files_checksum with
-// the one-liner. Skipped where the GNU tools it uses aren't available.
-func TestFilesChecksumMatchesShellPipeline(t *testing.T) {
+// Checksum(dir) must equal the documented shell pipeline run in dir, byte-for-byte.
+// This is the contract: anyone can reproduce files_checksum with the one-liner.
+// Skipped where the GNU tools it uses aren't available.
+func TestChecksumMatchesShellPipeline(t *testing.T) {
 	for _, bin := range []string{"bash", "sha256sum"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skipf("%s not available", bin)
 		}
 	}
 	dir := newRepo(t)
-	// Extra files to exercise sorting (untracked, out of order) and symlink-follow.
 	if err := os.WriteFile(filepath.Join(dir, "z.txt"), []byte("zzz\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +136,7 @@ func TestFilesChecksumMatchesShellPipeline(t *testing.T) {
 		t.Skipf("shell pipeline failed (missing tool such as sort -z / xargs -0?): %v", err)
 	}
 	want := strings.TrimSpace(string(out))
-	if got := filesChecksum(context.Background(), dir); got != want {
-		t.Errorf("filesChecksum(context.Background(), dir) = %q\nshell pipeline       = %q", got, want)
+	if got := Checksum(context.Background(), dir); got != want {
+		t.Errorf("Checksum(dir) = %q\nshell pipeline = %q", got, want)
 	}
 }

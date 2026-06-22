@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Th0masL/contextinfo"
-	"github.com/Th0masL/contextinfo/internal/deploy"
+	"github.com/Th0masL/contextinfo/deploy"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Th0masL/contextinfo/internal/deploy"
+	"github.com/Th0masL/contextinfo/deploy"
 )
 
 func mustGlob(t *testing.T, g string) deploy.Pattern {

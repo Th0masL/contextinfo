@@ -10,7 +10,9 @@ follows [Semantic Versioning](https://semver.org/).
 
 - `contextinfo` library (package `contextinfo` at the module root,
   `github.com/Th0masL/contextinfo`) exposing `Detect() Info`, and the
-  `contextinfo` CLI under `cmd/contextinfo`.
+  `contextinfo` CLI under `cmd/contextinfo`. The root package is a thin public
+  facade; detection mechanics live in `internal/ci`, `internal/git`, and
+  `internal/scm`, with public `config` and `deploy` subpackages.
 - A single flat `Info` set, resolved local-first — git/OS values are primary and
   CI variables augment them, so it works the same in and out of CI. Fields:
   `git_branch`, `git_commit_sha`, `git_commit_sha_short`, `git_tag`, `git_dirty`,
@@ -35,10 +37,10 @@ follows [Semantic Versioning](https://semver.org/).
     the `--no-files-checksum` flag or `contextinfo.WithoutFilesChecksum()`.
 - CI/CD detection for GitHub Actions, GitLab CI, and CircleCI (the platforms
   whose environments have been verified), plus a generic `CI=true` → `unknown`
-  fallback and a `""` (local) default. Per-provider detection lives in
-  `github.go` / `gitlab.go` / `circleci.go` behind an env-injectable core, with
-  golden tests over committed real CI environment dumps in
-  `testdata/env`. CircleCI has no native event variable, so its
+  fallback and a `""` (local) default. Per-provider detection lives in the
+  `internal/ci` package (github/gitlab/circleci) behind an env-injectable core,
+  with golden tests over committed real CI environment dumps in
+  `internal/ci/testdata/env`. CircleCI has no native event variable, so its
   `event` is derived from `CIRCLE_TAG` / `CIRCLE_PULL_REQUEST` / `CIRCLE_BRANCH`.
 - CLI formats: `envvar` (**default** — shell `NAME=value` lines), `json` (flat),
   `text`, `tfvars` (HCL). A flat JSON object is valid `.tfvars.json`, so `json`
@@ -66,12 +68,13 @@ follows [Semantic Versioning](https://semver.org/).
   boolean tree (`all`/`any`/`not`, plus implicit AND across fields and OR across
   list values) matched with globs or anchored Go regexps (e.g. strict semver);
   fields are addressable by their output name (`git_branch`) or a short alias
-  (`branch`). The matching engine lives in `internal/deploy`
-  (stdlib-only, so the core package gains no dependency, and the rule/condition
-  types stay out of the public API). `--env-name` / `--build-type` (and
+  (`branch`). The rule model and matcher live in the `deploy` package
+  (stdlib-only, so the core package gains no dependency); rules can be loaded from
+  YAML via `config` or built in code with the `deploy` package (e.g. a Terraform
+  provider decoding them from HCL). `--env-name` / `--build-type` (and
   `contextinfo.WithDeployVar`) force a value, overriding the rules;
-  `contextinfo.WithDeployRules` / `contextinfo.Resolve(rules, info)` expose it to
-  library users, and `--explain` records which rule set each value.
+  `contextinfo.WithDeployRules` / `contextinfo.Resolve(rules, info)` apply them,
+  and `--explain` records which rule set each value.
 - `contextinfo.DetectContext(ctx, opts...)` — Detect with a context that bounds
   the git subprocesses, for cancellation/timeout in long-running embedders.
 - Rich `--help` with a description, the flags, the format list, examples, and a

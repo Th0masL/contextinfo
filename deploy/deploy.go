@@ -1,7 +1,12 @@
 // Package deploy is the deploy-rule engine — the condition model and matcher —
-// shared by the contextinfo core (which applies rules to a detected context) and
-// the config subpackage (which builds rules from YAML). It lives under internal/
-// so these types stay out of contextinfo's public API.
+// used by the contextinfo core (which applies rules to a detected context) and
+// the config subpackage (which builds rules from YAML).
+//
+// It is public so consumers can also build rules programmatically — e.g. a
+// Terraform provider that decodes deploy rules from HCL and feeds them to
+// contextinfo.Resolve / contextinfo.WithDeployRules — not just load them from a
+// .contextinfo.yaml. Build patterns with GlobPattern/RegexPattern and populate
+// Rules/Rule/Cond/FieldMatch directly.
 //
 // It is decoupled from the core Info via a Lookup function, so it has no
 // dependency on the contextinfo package (avoiding an import cycle) and uses only

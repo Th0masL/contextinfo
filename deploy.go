@@ -3,18 +3,19 @@ package contextinfo
 import (
 	"strconv"
 
-	"github.com/Th0masL/contextinfo/internal/deploy"
+	"github.com/Th0masL/contextinfo/deploy"
 )
 
 // Deploy rules map the detected context to derived variables — typically a
 // deployment target such as env_name and build_type, but the set is open-ended.
-// The rule model and matcher live in the internal/deploy package (so they stay
-// out of the public API); this file owns the field vocabulary (which detected
-// fields a condition can match on) and the glue to apply rules to an Info.
+// The rule model and matcher live in the deploy package; this file owns the field
+// vocabulary (which detected fields a condition can match on) and the glue to
+// apply rules to an Info.
 
-// DeployRules is an opaque set of deploy rules. Build one with the config
-// subpackage (config.Config.DeployRules) and apply it with WithDeployRules, or
-// evaluate it directly with Resolve.
+// DeployRules is a set of deploy rules. Get one from the config subpackage
+// (config.Config.DeployRules, parsed from a .contextinfo.yaml) or build one in
+// code with the deploy package; apply it with WithDeployRules, or evaluate it
+// directly with Resolve.
 type DeployRules = deploy.Rules
 
 // Resolve applies deploy rules to a detected Info and returns the derived

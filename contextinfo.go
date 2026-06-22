@@ -15,6 +15,10 @@ package contextinfo
 import (
 	"context"
 	"os"
+
+	"github.com/Th0masL/contextinfo/internal/ci"
+	"github.com/Th0masL/contextinfo/internal/git"
+	"github.com/Th0masL/contextinfo/internal/scm"
 )
 
 // Info is the detected context as a single flat set of fields. Each field is
@@ -134,27 +138,27 @@ func detect(getenv func(string) string, o options) Info {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ci, ciSrc := detectCI(getenv)
+	cid, ciSrc := ci.Detect(getenv)
 
 	// One probe decides whether to do any git work: outside a repo the other git
 	// calls would all fail, so we skip them (and the branch comes from the CI hint
 	// alone). This also distinguishes "not a repo" from "empty repo" for --explain.
-	inRepo := gitOutput(ctx, o.dir, "rev-parse", "--is-inside-work-tree") == "true"
+	inRepo := git.InRepo(ctx, o.dir)
 
 	var sha, short, tag, remote, branch, branchSrc string
 	dirty := false
 	if inRepo {
-		sha = gitOutput(ctx, o.dir, "rev-parse", "HEAD")
+		sha = git.Output(ctx, o.dir, "rev-parse", "HEAD")
 		short = sha
 		if len(short) > 7 {
 			short = short[:7]
 		}
-		tag = gitOutput(ctx, o.dir, "describe", "--tags", "--exact-match")
-		dirty = gitDirty(ctx, o.dir)
-		remote = gitRemoteURL(ctx, o.dir)
-		branch, branchSrc = gitBranch(ctx, o.dir, ci.branchHint, ciSrc["git_branch"])
-	} else if ci.branchHint != "" {
-		branch, branchSrc = ci.branchHint, ciSrc["git_branch"]
+		tag = git.Output(ctx, o.dir, "describe", "--tags", "--exact-match")
+		dirty = git.Dirty(ctx, o.dir)
+		remote = git.RemoteURL(ctx, o.dir)
+		branch, branchSrc = git.Branch(ctx, o.dir, cid.BranchHint, ciSrc["git_branch"])
+	} else if cid.BranchHint != "" {
+		branch, branchSrc = cid.BranchHint, ciSrc["git_branch"]
 	} else {
 		branch, branchSrc = "", "none (not a git repository)"
 	}
@@ -165,22 +169,22 @@ func detect(getenv func(string) string, o options) Info {
 		GitCommitSHAShort: short,
 		GitTag:            tag,
 		GitDirty:          dirty,
-		GitRepoURL:        firstNonEmpty(ci.repoURL, httpsRepoURL(remote)),
-		GitRepository:     firstNonEmpty(ci.repository, repoSlug(remote)),
-		Actor:             firstNonEmpty(ci.actor, osUser()),
-		Event:             firstNonEmpty(ci.event, "manual"),
-		CIPlatform:        ci.platform,
-		CIBuildURL:        ci.buildURL,
-		CIBuildNumber:     ci.buildNumber,
-		CIWorkflow:        ci.workflow,
+		GitRepoURL:        firstNonEmpty(cid.RepoURL, scm.HTTPSURL(remote)),
+		GitRepository:     firstNonEmpty(cid.Repository, scm.Slug(remote)),
+		Actor:             firstNonEmpty(cid.Actor, osUser()),
+		Event:             firstNonEmpty(cid.Event, "manual"),
+		CIPlatform:        cid.Platform,
+		CIBuildURL:        cid.BuildURL,
+		CIBuildNumber:     cid.BuildNumber,
+		CIWorkflow:        cid.Workflow,
 		RuntimeHostname:   hostname(),
 	}
 	if inRepo && o.checksum {
-		info.FilesChecksum = filesChecksum(ctx, o.dir)
+		info.FilesChecksum = git.Checksum(ctx, o.dir)
 	}
 	// Provenance is captured in one pass from the values/sources already computed
 	// (no re-derivation); RenderOptions.Explain later gates whether it is emitted.
-	info.explained = buildExplained(ci, ciSrc, info, branchSrc, inRepo, o.checksum)
+	info.explained = buildExplained(cid, ciSrc, info, branchSrc, inRepo, o.checksum)
 
 	// Derived deploy variables: apply rules (default, then first matching rule),
 	// then explicit overrides win. Provenance is recorded into explained so the

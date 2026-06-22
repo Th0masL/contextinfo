@@ -1,22 +1,22 @@
-package contextinfo
+package ci
 
 // gitlabData extracts CI context from GitLab CI environment variables, plus a
 // per-field map of the variable(s) each value came from (for --explain).
 // See https://docs.gitlab.com/ee/ci/variables/predefined_variables.html.
-func gitlabData(env func(string) string) (ciData, map[string]string) {
-	d := ciData{
-		platform:   "gitlab-ci",
-		actor:      env("GITLAB_USER_LOGIN"),
-		event:      gitlabEvent(env),
-		repository: env("CI_PROJECT_PATH"),
-		repoURL:    env("CI_PROJECT_URL"), // already the HTTPS repo URL
+func gitlabData(env func(string) string) (Data, map[string]string) {
+	d := Data{
+		Platform:   "gitlab-ci",
+		Actor:      env("GITLAB_USER_LOGIN"),
+		Event:      gitlabEvent(env),
+		Repository: env("CI_PROJECT_PATH"),
+		RepoURL:    env("CI_PROJECT_URL"), // already the HTTPS repo URL
 		// CI_COMMIT_BRANCH is set on branch pipelines (empty on tag and
 		// merge-request pipelines); on an MR the source branch is in
 		// CI_MERGE_REQUEST_SOURCE_BRANCH_NAME. Neither is ever a tag name.
-		branchHint:  firstNonEmpty(env("CI_COMMIT_BRANCH"), env("CI_MERGE_REQUEST_SOURCE_BRANCH_NAME")),
-		buildURL:    firstNonEmpty(env("CI_PIPELINE_URL"), env("CI_JOB_URL")),
-		buildNumber: firstNonEmpty(env("CI_PIPELINE_IID"), env("CI_PIPELINE_ID")),
-		workflow:    env("CI_JOB_NAME"),
+		BranchHint:  firstNonEmpty(env("CI_COMMIT_BRANCH"), env("CI_MERGE_REQUEST_SOURCE_BRANCH_NAME")),
+		BuildURL:    firstNonEmpty(env("CI_PIPELINE_URL"), env("CI_JOB_URL")),
+		BuildNumber: firstNonEmpty(env("CI_PIPELINE_IID"), env("CI_PIPELINE_ID")),
+		Workflow:    env("CI_JOB_NAME"),
 	}
 
 	src := map[string]string{

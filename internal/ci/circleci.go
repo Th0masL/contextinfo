@@ -1,4 +1,6 @@
-package contextinfo
+package ci
+
+import "github.com/Th0masL/contextinfo/internal/scm"
 
 // circleCIData extracts CI context from CircleCI environment variables, plus a
 // per-field map of the variable(s) each value came from (for --explain).
@@ -9,8 +11,8 @@ package contextinfo
 // "pull_request", else CIRCLE_BRANCH -> "push". CIRCLE_REPOSITORY_URL is not
 // always populated, so the repository slug comes from
 // CIRCLE_PROJECT_USERNAME/CIRCLE_PROJECT_REPONAME and the URL falls back to the
-// local git remote (see detect) when env has none.
-func circleCIData(env func(string) string) (ciData, map[string]string) {
+// local git remote (see the core's detect) when env has none.
+func circleCIData(env func(string) string) (Data, map[string]string) {
 	repo := ""
 	if owner, name := env("CIRCLE_PROJECT_USERNAME"), env("CIRCLE_PROJECT_REPONAME"); owner != "" && name != "" {
 		repo = owner + "/" + name
@@ -26,16 +28,16 @@ func circleCIData(env func(string) string) (ciData, map[string]string) {
 		event = "push"
 	}
 
-	d := ciData{
-		platform:    "circleci",
-		actor:       env("CIRCLE_USERNAME"),
-		event:       event,
-		repository:  repo,
-		repoURL:     httpsRepoURL(env("CIRCLE_REPOSITORY_URL")), // "" when unset
-		branchHint:  env("CIRCLE_BRANCH"),                       // empty on tag builds
-		buildURL:    env("CIRCLE_BUILD_URL"),
-		buildNumber: env("CIRCLE_BUILD_NUM"),
-		workflow:    env("CIRCLE_JOB"),
+	d := Data{
+		Platform:    "circleci",
+		Actor:       env("CIRCLE_USERNAME"),
+		Event:       event,
+		Repository:  repo,
+		RepoURL:     scm.HTTPSURL(env("CIRCLE_REPOSITORY_URL")), // "" when unset
+		BranchHint:  env("CIRCLE_BRANCH"),                       // empty on tag builds
+		BuildURL:    env("CIRCLE_BUILD_URL"),
+		BuildNumber: env("CIRCLE_BUILD_NUM"),
+		Workflow:    env("CIRCLE_JOB"),
 	}
 
 	src := map[string]string{

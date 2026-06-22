@@ -1,4 +1,4 @@
-package contextinfo
+package git
 
 import (
 	"context"
@@ -12,9 +12,8 @@ import (
 	"strings"
 )
 
-// filesChecksum returns a SHA-256 fingerprint of the non-ignored files in the
-// current working directory (and below). It is a native, byte-for-byte
-// reimplementation of this shell pipeline:
+// Checksum returns a SHA-256 fingerprint of the non-ignored files in dir (and
+// below). It is a native, byte-for-byte reimplementation of this shell pipeline:
 //
 //	git ls-files -z --cached --others --exclude-standard \
 //	    | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}'
@@ -31,7 +30,7 @@ import (
 // uncommitted edits change it. An empty-but-real repository yields the SHA-256 of
 // an empty manifest (e3b0c442...), matching the pipeline. Returns "" only when
 // not in a git repository (or git is unavailable).
-func filesChecksum(ctx context.Context, dir string) string {
+func Checksum(ctx context.Context, dir string) string {
 	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	cmd.Dir = dir // "" means the process's current directory
 	out, err := cmd.Output()
