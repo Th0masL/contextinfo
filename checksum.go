@@ -1,6 +1,7 @@
 package contextinfo
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -30,8 +31,8 @@ import (
 // uncommitted edits change it. An empty-but-real repository yields the SHA-256 of
 // an empty manifest (e3b0c442...), matching the pipeline. Returns "" only when
 // not in a git repository (or git is unavailable).
-func filesChecksum(dir string) string {
-	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+func filesChecksum(ctx context.Context, dir string) string {
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	cmd.Dir = dir // "" means the process's current directory
 	out, err := cmd.Output()
 	if err != nil {
@@ -42,6 +43,9 @@ func filesChecksum(dir string) string {
 
 	h := sha256.New()
 	for _, path := range files {
+		if ctx.Err() != nil {
+			return "" // cancelled mid-hash on a large tree
+		}
 		if line, ok := sha256sumLine(dir, path); ok {
 			io.WriteString(h, line)
 		}

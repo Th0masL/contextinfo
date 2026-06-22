@@ -23,7 +23,7 @@ func TestFlattenMatchesStructTags(t *testing.T) {
 		}
 	}
 	var keys []string
-	for _, p := range (Info{}).flatten("") {
+	for _, p := range (Info{}).flatten(RenderOptions{}) {
 		keys = append(keys, p.key)
 	}
 	if !reflect.DeepEqual(tags, keys) {
@@ -54,7 +54,7 @@ func sampleInfo() Info {
 
 // FlatJSON (no prefix) is a flat object — no nesting, booleans stay booleans.
 func TestFlatJSON(t *testing.T) {
-	b, err := sampleInfo().FlatJSON("")
+	b, err := sampleInfo().FlatJSON(RenderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestFlatJSON(t *testing.T) {
 
 // A prefix is applied to every key, and the unprefixed form disappears.
 func TestFlatJSONPrefix(t *testing.T) {
-	b, _ := sampleInfo().FlatJSON("TF_VAR_")
+	b, _ := sampleInfo().FlatJSON(RenderOptions{Prefix: "TF_VAR_"})
 	var m map[string]any
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatalf("not valid JSON: %v", err)
@@ -94,7 +94,7 @@ func TestFlatJSONPrefix(t *testing.T) {
 
 // HCL output uses bare booleans and quoted strings, with no prefix by default.
 func TestTFVarsHCL(t *testing.T) {
-	out := sampleInfo().TFVarsHCL("")
+	out := sampleInfo().TFVarsHCL(RenderOptions{})
 	for _, want := range []string{
 		`git_branch`,
 		`= "main"`,
@@ -113,7 +113,7 @@ func TestTFVarsHCL(t *testing.T) {
 
 // A prefix is applied to the HCL variable names.
 func TestTFVarsHCLPrefix(t *testing.T) {
-	out := sampleInfo().TFVarsHCL("TF_VAR_")
+	out := sampleInfo().TFVarsHCL(RenderOptions{Prefix: "TF_VAR_"})
 	if !strings.Contains(out, "TF_VAR_git_commit_sha") {
 		t.Errorf("prefixed HCL output missing TF_VAR_git_commit_sha\n%s", out)
 	}
@@ -124,7 +124,7 @@ func TestTFVarsHCLPrefix(t *testing.T) {
 func TestTFVarsHCLEscapesInterpolation(t *testing.T) {
 	info := sampleInfo()
 	info.GitBranch = `feat/${injected}`
-	out := info.TFVarsHCL("")
+	out := info.TFVarsHCL(RenderOptions{})
 	if !strings.Contains(out, `feat/$${injected}`) {
 		t.Errorf("expected ${ to be escaped as $${, got:\n%s", out)
 	}
@@ -137,7 +137,7 @@ func TestTFVarsHCLEscapesInterpolation(t *testing.T) {
 func TestTFVarsHCLEscapesDirectiveAndQuotes(t *testing.T) {
 	info := sampleInfo()
 	info.GitRepoURL = `a"b%{c}`
-	out := info.TFVarsHCL("")
+	out := info.TFVarsHCL(RenderOptions{})
 	if !strings.Contains(out, `a\"b%%{c}`) {
 		t.Errorf("expected quote and %%{ escaping, got:\n%s", out)
 	}
@@ -145,7 +145,7 @@ func TestTFVarsHCLEscapesDirectiveAndQuotes(t *testing.T) {
 
 // envvar output: bare booleans and single-quoted strings (shell-safe).
 func TestEnvVars(t *testing.T) {
-	out := sampleInfo().EnvVars("")
+	out := sampleInfo().EnvVars(RenderOptions{})
 	if !strings.Contains(out, "git_dirty=false") {
 		t.Errorf("boolean should be bare:\n%s", out)
 	}

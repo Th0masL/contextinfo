@@ -48,6 +48,39 @@ func TestDetectLocal(t *testing.T) {
 	}
 }
 
+// Outside a git repository, the git-derived fields are empty and the checksum is
+// skipped, but OS/CI-derived fields (and the explain notes) still resolve. The CI
+// branch hint is used directly, without invoking git.
+func TestDetectOutsideRepo(t *testing.T) {
+	dir := t.TempDir() // not a git repo
+
+	// Local: no git, no CI -> empty git fields, event=manual, actor from OS.
+	info := detect(getter(nil), options{dir: dir, checksum: true})
+	if info.GitCommitSHA != "" || info.GitBranch != "" || info.FilesChecksum != "" {
+		t.Errorf("outside a repo expected empty git fields, got sha=%q branch=%q checksum=%q",
+			info.GitCommitSHA, info.GitBranch, info.FilesChecksum)
+	}
+	if info.Event != "manual" || info.Actor == "" || info.RuntimeHostname == "" {
+		t.Errorf("non-git fields should still resolve: event=%q actor=%q host=%q",
+			info.Event, info.Actor, info.RuntimeHostname)
+	}
+	if got := info.explained["git_dirty"]; got != "none (not a git repository)" {
+		t.Errorf("git_dirty explain = %q, want \"none (not a git repository)\"", got)
+	}
+
+	// With a CI branch hint, the branch is taken from CI even with no git.
+	ciInfo := detect(getter(map[string]string{
+		"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "push",
+		"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "release/9",
+	}), options{dir: dir})
+	if ciInfo.GitBranch != "release/9" {
+		t.Errorf("git_branch = %q, want release/9 (CI hint, no git)", ciInfo.GitBranch)
+	}
+	if ciInfo.GitCommitSHA != "" {
+		t.Errorf("git_commit_sha = %q, want empty (not a repo)", ciInfo.GitCommitSHA)
+	}
+}
+
 // In CI on a detached HEAD, CI values take precedence (actor/repository/URL) and
 // supply the branch the detached checkout can't report.
 func TestDetectCIOverridesLocal(t *testing.T) {

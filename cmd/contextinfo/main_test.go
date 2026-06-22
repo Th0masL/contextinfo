@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -267,6 +268,106 @@ func TestCLIExplain(t *testing.T) {
 	plain, _ := runCLI(t, bin)
 	if strings.Contains(plain, "_explained") {
 		t.Errorf("companions leaked without --explain:\n%s", plain)
+	}
+}
+
+// A .contextinfo.yaml in the inspected dir is honored, and explicit flags
+// override it. HOME is pointed at an empty temp dir so the test never reads a
+// real ~/.contextinfo.yaml.
+func TestCLIConfigFile(t *testing.T) {
+	bin := buildCLI(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".contextinfo.yaml"), []byte("format: json\nprefix: CFG_\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = append(os.Environ(), "HOME="+home)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run %v: %v", args, err)
+		}
+		return string(out)
+	}
+
+	// Config selects JSON output with a CFG_ prefix.
+	if out := run("--dir", dir); !strings.Contains(out, `"CFG_git_branch"`) {
+		t.Errorf("config (json + CFG_ prefix) not applied:\n%s", out)
+	}
+	// Explicit --format overrides the file's format; the file's prefix still applies.
+	if out := run("--dir", dir, "--format=envvar"); !strings.Contains(out, "CFG_git_branch=") {
+		t.Errorf("--format should override config while keeping config prefix:\n%s", out)
+	}
+	// Explicit --prefix overrides the file's prefix.
+	out := run("--dir", dir, "--format=envvar", "--prefix", "X_")
+	if !strings.Contains(out, "X_git_branch=") || strings.Contains(out, "CFG_git_branch=") {
+		t.Errorf("--prefix should override the config prefix:\n%s", out)
+	}
+}
+
+// Deploy rules from the config file produce env_name/build_type, and
+// --env-name/--build-type override them. A deterministic GitHub "push to main"
+// context is forced via the environment so the test result never depends on
+// where it runs (CI or not).
+func TestCLIDeploy(t *testing.T) {
+	bin := buildCLI(t)
+	dir := t.TempDir()
+	cfg := `deploy:
+  rules:
+    - if: { event: push, branch: main }
+      set: { env_name: ci-main, build_type: production }
+  default:
+    set: { env_name: other, build_type: dev }
+`
+	if err := os.WriteFile(filepath.Join(dir, ".contextinfo.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	// Appended values win over any inherited ones (exec uses the last duplicate).
+	ciEnv := []string{
+		"HOME=" + home,
+		"GITHUB_ACTIONS=true", "GITHUB_EVENT_NAME=push",
+		"GITHUB_REF_TYPE=branch", "GITHUB_REF_NAME=main",
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = append(os.Environ(), ciEnv...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("run %v: %v", args, err)
+		}
+		return string(out)
+	}
+
+	// The matching rule sets env_name=ci-main.
+	if out := run("--dir", dir, "--no-files-checksum", "--format=json"); !strings.Contains(out, `"env_name": "ci-main"`) {
+		t.Errorf("deploy rule (push to main) not applied:\n%s", out)
+	}
+	// --env-name overrides the rule.
+	if out := run("--dir", dir, "--no-files-checksum", "--format=json", "--env-name=forced"); !strings.Contains(out, `"env_name": "forced"`) {
+		t.Errorf("--env-name override not applied:\n%s", out)
+	}
+}
+
+// A .contextinfo.yml (alternate extension) is also discovered.
+func TestCLIConfigYmlExtension(t *testing.T) {
+	bin := buildCLI(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".contextinfo.yml"), []byte("prefix: YML_\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "--dir", dir, "--no-files-checksum", "--format=json")
+	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(string(out), `"YML_git_branch"`) {
+		t.Errorf(".yml config not discovered:\n%s", out)
 	}
 }
 

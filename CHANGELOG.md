@@ -8,8 +8,9 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `contextinfo` library (`pkg/contextinfo`) exposing `Detect() Info`, and the
-  `contextinfo` CLI.
+- `contextinfo` library (package `contextinfo` at the module root,
+  `github.com/Th0masL/contextinfo`) exposing `Detect() Info`, and the
+  `contextinfo` CLI under `cmd/contextinfo`.
 - A single flat `Info` set, resolved local-first — git/OS values are primary and
   CI variables augment them, so it works the same in and out of CI. Fields:
   `git_branch`, `git_commit_sha`, `git_commit_sha_short`, `git_tag`, `git_dirty`,
@@ -37,7 +38,7 @@ follows [Semantic Versioning](https://semver.org/).
   fallback and a `""` (local) default. Per-provider detection lives in
   `github.go` / `gitlab.go` / `circleci.go` behind an env-injectable core, with
   golden tests over committed real CI environment dumps in
-  `pkg/contextinfo/testdata/env`. CircleCI has no native event variable, so its
+  `testdata/env`. CircleCI has no native event variable, so its
   `event` is derived from `CIRCLE_TAG` / `CIRCLE_PULL_REQUEST` / `CIRCLE_BRANCH`.
 - CLI formats: `envvar` (**default** — shell `NAME=value` lines), `json` (flat),
   `text`, `tfvars` (HCL). A flat JSON object is valid `.tfvars.json`, so `json`
@@ -47,11 +48,35 @@ follows [Semantic Versioning](https://semver.org/).
 - `contextinfo.WithDir(dir)` library option and `--dir` CLI flag to inspect a
   directory other than the current one. `Detect` holds no global state, so it is
   safe to call concurrently for different directories.
-- `contextinfo.WithExplain()` / `--explain`: emits a `<field>_explained` companion
-  after each field naming where the value came from (env var(s) or git command),
-  in every format. The notes name variables and commands, not their contents, so
-  they never expose secrets. Adds `Info.Text()` for the `text` format.
-- Rich `--help` with a description, the flags, the format list, and examples.
-- `Info.EnvVars(prefix)` / `Info.FlatJSON(prefix)` / `Info.TFVarsHCL(prefix)` /
-  `Info.Text()` library methods (HCL/shell output is safely escaped).
+- `--explain` (library: `RenderOptions{Explain: true}`): emits a
+  `<field>_explained` companion after each field naming where the value came from
+  (env var(s) or git command), in every format. Provenance is always captured at
+  detection; explain is a render-time choice, so the same `Info` renders with or
+  without it. The notes name variables and commands, not their contents, so they
+  never expose secrets.
+- Config-file support: a `.contextinfo.yaml` (or `.yml`) read from the working
+  directory, its parents up to the git repo root, `$HOME`, and
+  `/etc/contextinfo.yaml`, merged closest-wins; explicitly-passed flags override
+  the file. Keys: `format`, `prefix`, `files_checksum`, `explain`, plus `deploy`.
+  Loaded by the `config` subpackage, which isolates the `gopkg.in/yaml.v3`
+  dependency so the core package stays dependency-free.
+- Deploy rules: a `deploy:` config block derives extra output variables (e.g.
+  `env_name`, `build_type`, or any custom keys) from the detected context — an
+  ordered, first-match-wins rule list merged over a `default`. Conditions are a
+  boolean tree (`all`/`any`/`not`, plus implicit AND across fields and OR across
+  list values) matched with globs or anchored Go regexps (e.g. strict semver);
+  fields are addressable by their output name (`git_branch`) or a short alias
+  (`branch`). The matching engine lives in `internal/deploy`
+  (stdlib-only, so the core package gains no dependency, and the rule/condition
+  types stay out of the public API). `--env-name` / `--build-type` (and
+  `contextinfo.WithDeployVar`) force a value, overriding the rules;
+  `contextinfo.WithDeployRules` / `contextinfo.Resolve(rules, info)` expose it to
+  library users, and `--explain` records which rule set each value.
+- `contextinfo.DetectContext(ctx, opts...)` — Detect with a context that bounds
+  the git subprocesses, for cancellation/timeout in long-running embedders.
+- Rich `--help` with a description, the flags, the format list, examples, and a
+  sample `.contextinfo.yaml` (including a deploy block).
+- `Info.EnvVars` / `Info.FlatJSON` / `Info.TFVarsHCL` / `Info.Text` render
+  methods, each taking a `RenderOptions{Prefix, Explain}` (HCL/shell output is
+  safely escaped).
 - GoReleaser configuration and CI/release GitHub Actions workflows.

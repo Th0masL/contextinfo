@@ -1,10 +1,44 @@
 package contextinfo
 
-import "testing"
+import (
+	"reflect"
+	"sort"
+	"testing"
+)
 
 // getter returns a getenv-style lookup backed by m (missing keys yield "").
 func getter(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
+}
+
+// second returns the source-label map from a per-provider detector's two results.
+func second(_ ciData, src map[string]string) map[string]string { return src }
+
+// Every provider must expose the same set of source-label keys (one per
+// CI-augmented field). This fails loudly if a provider's label table drifts —
+// e.g. a new field is wired into one provider but not the others, which would
+// otherwise just leave a silently-empty "<field>_explained" companion.
+func TestCISourceLabelKeysInLockstep(t *testing.T) {
+	want := []string{
+		"actor", "ci_build_number", "ci_build_url", "ci_platform",
+		"ci_workflow", "event", "git_branch", "git_repo_url", "git_repository",
+	}
+	get := getter(nil) // the label tables are static; the env values don't matter
+	providers := map[string]map[string]string{
+		"github":   second(githubData(get)),
+		"gitlab":   second(gitlabData(get)),
+		"circleci": second(circleCIData(get)),
+	}
+	for name, src := range providers {
+		got := make([]string, 0, len(src))
+		for k := range src {
+			got = append(got, k)
+		}
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s source-label keys = %v,\n             want %v", name, got, want)
+		}
+	}
 }
 
 // With no CI markers set, detection reports a local (empty-platform) run.
@@ -192,5 +226,21 @@ func TestGitLabDataTagPipelineHasNoBranchHint(t *testing.T) {
 	}
 	if d.branchHint != "" {
 		t.Errorf("tag pipeline: branchHint = %q, want empty", d.branchHint)
+	}
+}
+
+// A GitLab merge-request pipeline has CI_COMMIT_BRANCH empty, so the branch hint
+// falls back to the MR source branch (CI_MERGE_REQUEST_SOURCE_BRANCH_NAME).
+func TestGitLabDataMergeRequest(t *testing.T) {
+	d, _ := detectCI(getter(map[string]string{
+		"GITLAB_CI":                           "true",
+		"CI_PIPELINE_SOURCE":                  "merge_request_event",
+		"CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "feature/x",
+	}))
+	if d.event != "pull_request" {
+		t.Errorf("event = %q, want pull_request", d.event)
+	}
+	if d.branchHint != "feature/x" {
+		t.Errorf("branchHint = %q, want feature/x (MR source branch)", d.branchHint)
 	}
 }

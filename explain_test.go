@@ -5,19 +5,12 @@ import (
 	"testing"
 )
 
-// WithExplain adds a "<field>_explained" companion to each field (with the source
-// note) without changing the underlying values.
+// Provenance is always captured during detection; rendering with
+// RenderOptions.Explain decides whether to emit the "<field>_explained"
+// companions, without changing the underlying values.
 func TestExplainLocal(t *testing.T) {
 	dir := newRepo(t)
-
-	plain := detect(getter(nil), options{dir: dir, checksum: true})
-	info := detect(getter(nil), options{dir: dir, checksum: true, explain: true})
-
-	// Underlying values are unchanged by explain.
-	if info.GitBranch != plain.GitBranch || info.GitCommitSHA != plain.GitCommitSHA ||
-		info.FilesChecksum != plain.FilesChecksum || info.GitRepository != plain.GitRepository {
-		t.Error("WithExplain changed field values")
-	}
+	info := detect(getter(nil), options{dir: dir, checksum: true})
 
 	// The source notes match the local resolution.
 	for field, want := range map[string]string{
@@ -33,8 +26,12 @@ func TestExplainLocal(t *testing.T) {
 		}
 	}
 
-	// Rendered output carries both the field and its _explained companion.
-	out := info.EnvVars("")
+	// A plain render omits the companions; an Explain render adds them while the
+	// field values stay identical.
+	if plain := info.EnvVars(RenderOptions{}); strings.Contains(plain, "_explained") {
+		t.Errorf("plain render leaked _explained companions:\n%s", plain)
+	}
+	out := info.EnvVars(RenderOptions{Explain: true})
 	for _, want := range []string{
 		"git_branch='main'",
 		"git_branch_explained='git symbolic-ref --short HEAD'",
@@ -63,7 +60,7 @@ func TestExplainCISources(t *testing.T) {
 		"GITHUB_EVENT_NAME": "push",
 		"GITHUB_REF_TYPE":   "branch",
 		"GITHUB_REF_NAME":   "feature",
-	}), options{dir: dir, checksum: true, explain: true})
+	}), options{dir: dir, checksum: true})
 
 	for field, want := range map[string]string{
 		"actor":           "GITHUB_ACTOR",

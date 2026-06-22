@@ -1,6 +1,7 @@
 package contextinfo
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,31 +48,31 @@ func runGit(t *testing.T, dir string, args ...string) {
 func TestGitOnRepo(t *testing.T) {
 	dir := newRepo(t)
 
-	if sha := gitOutput(dir, "rev-parse", "HEAD"); len(sha) != 40 {
+	if sha := gitOutput(context.Background(), dir, "rev-parse", "HEAD"); len(sha) != 40 {
 		t.Errorf("sha = %q (len %d), want 40 hex chars", sha, len(sha))
 	}
-	if b, src := gitBranch(dir, "", ""); b != "main" || src != "git symbolic-ref --short HEAD" {
+	if b, src := gitBranch(context.Background(), dir, "", ""); b != "main" || src != "git symbolic-ref --short HEAD" {
 		t.Errorf("branch = %q (source %q), want main from symbolic-ref", b, src)
 	}
-	if gitDirty(dir) {
+	if gitDirty(context.Background(), dir) {
 		t.Error("expected a clean tree")
 	}
-	if got := gitRemoteURL(dir); got != "git@github.com:acme/widgets.git" {
+	if got := gitRemoteURL(context.Background(), dir); got != "git@github.com:acme/widgets.git" {
 		t.Errorf("remote = %q", got)
 	}
-	if got := gitOutput(dir, "describe", "--tags", "--exact-match"); got != "" {
+	if got := gitOutput(context.Background(), dir, "describe", "--tags", "--exact-match"); got != "" {
 		t.Errorf("unexpected tag %q", got)
 	}
 
 	runGit(t, dir, "tag", "v1.0.0")
-	if got := gitOutput(dir, "describe", "--tags", "--exact-match"); got != "v1.0.0" {
+	if got := gitOutput(context.Background(), dir, "describe", "--tags", "--exact-match"); got != "v1.0.0" {
 		t.Errorf("tag = %q, want v1.0.0", got)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !gitDirty(dir) {
+	if !gitDirty(context.Background(), dir) {
 		t.Error("expected a dirty tree after modification")
 	}
 }
@@ -82,24 +83,36 @@ func TestGitBranchDetachedUsesHint(t *testing.T) {
 	dir := newRepo(t)
 	runGit(t, dir, "checkout", "--detach") // mimic a CI checkout
 
-	if b, src := gitBranch(dir, "feature/x", "CI hint"); b != "feature/x" || src != "CI hint" {
+	if b, src := gitBranch(context.Background(), dir, "feature/x", "CI hint"); b != "feature/x" || src != "CI hint" {
 		t.Errorf("detached: branch = %q (source %q), want hint feature/x labelled 'CI hint'", b, src)
 	}
-	if b, _ := gitBranch(dir, "", ""); b != "" {
+	if b, _ := gitBranch(context.Background(), dir, "", ""); b != "" {
 		t.Errorf("detached without hint: branch = %q, want empty", b)
+	}
+}
+
+// DetectContext honours a cancelled context: the git subprocesses fail, so the
+// git-derived fields come back empty rather than the call hanging or panicking.
+func TestDetectContextCancelled(t *testing.T) {
+	dir := newRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before detection runs
+	info := DetectContext(ctx, WithDir(dir))
+	if info.GitCommitSHA != "" {
+		t.Errorf("cancelled DetectContext should yield empty git fields, got sha %q", info.GitCommitSHA)
 	}
 }
 
 // Outside a repository the git helpers return empty/false rather than erroring.
 func TestGitOutsideRepo(t *testing.T) {
 	dir := t.TempDir() // not a git repo
-	if sha := gitOutput(dir, "rev-parse", "HEAD"); sha != "" {
+	if sha := gitOutput(context.Background(), dir, "rev-parse", "HEAD"); sha != "" {
 		t.Errorf("sha outside a repo = %q, want empty", sha)
 	}
-	if gitDirty(dir) {
+	if gitDirty(context.Background(), dir) {
 		t.Error("dirty outside a repo should be false")
 	}
-	if r := gitRemoteURL(dir); r != "" {
+	if r := gitRemoteURL(context.Background(), dir); r != "" {
 		t.Errorf("remote outside a repo = %q, want empty", r)
 	}
 }

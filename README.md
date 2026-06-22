@@ -12,8 +12,10 @@ whether or not it runs in CI. CI variables only *augment* those values where the
 are more authoritative (the branch on a detached-HEAD checkout, the triggering
 user, the build URL, …).
 
-`contextinfo` has **no external dependencies** (standard library only) and never
-fails: when something can't be detected, the corresponding field is left empty.
+The core `contextinfo` package has **no external dependencies** (standard library
+only) and never fails: when something can't be detected, the corresponding field
+is left empty. (Only the optional `config` subpackage — for reading
+`.contextinfo.yaml` — pulls in a YAML dependency.)
 
 ## Install
 
@@ -172,8 +174,8 @@ event_explained='default (not in CI)'
 In CI the notes name the winning provider variables — e.g.
 `actor_explained='GITHUB_ACTOR'`, `git_repo_url_explained='GITHUB_SERVER_URL + GITHUB_REPOSITORY'`,
 or `git_branch_explained='none (tag or detached HEAD)'`. It works with every
-format (the companions are just extra keys), and `contextinfo.WithExplain()` does
-the same in the library.
+format (the companions are just extra keys), and the library does the same via
+`RenderOptions{Explain: true}` (see below).
 
 ### Terraform variables
 
@@ -207,6 +209,123 @@ variable "git_commit_sha" {
 String values are safely quoted in HCL (including `${`/`%{` interpolation
 markers), so untrusted ref or remote values can't break the file.
 
+## Configuration file
+
+Settings can also come from a `.contextinfo.yaml` file instead of (or alongside)
+flags. contextinfo searches these locations, highest precedence first:
+
+1. the current directory (or `--dir`) — `.contextinfo.yaml`
+2. each parent directory up to the git repo root (the dir containing `.git`)
+3. `$HOME/.contextinfo.yaml`
+4. `/etc/contextinfo.yaml`
+
+`.yaml` is canonical, but `.yml` is accepted as a fallback in each location
+(`.yaml` wins if both exist). Files are **merged closest-wins** (a key set in the
+CWD file beats the same key in a parent / `$HOME` / `/etc` file), and
+**explicitly-passed flags override the file**. Keys mirror the flags:
+
+```yaml
+# .contextinfo.yaml
+format: tfvars          # envvar | json | text | tfvars
+prefix: TF_VAR_
+files_checksum: false   # same as --no-files-checksum
+explain: false
+# deploy: { ... }       # derive env_name/build_type — see "Deploy rules" below
+```
+
+A missing file is fine (no config); a malformed file is an error.
+
+Library users load the same config via the `config` subpackage — which is where
+the YAML dependency lives, so the core `contextinfo` package stays
+dependency-free:
+
+```go
+import (
+	"github.com/Th0masL/contextinfo"
+	"github.com/Th0masL/contextinfo/config"
+)
+
+cfg, _, _ := config.Load(dir) // discover + merge .contextinfo.yaml for dir
+info := contextinfo.Detect(append(cfg.DetectOptions(), contextinfo.WithDir(dir))...)
+out := info.FlatJSON(cfg.RenderOptions()) // cfg.RenderOptions() carries prefix + explain
+// cfg.Format selects which render method to call
+```
+
+## Deploy rules
+
+A `deploy:` block derives extra variables — typically a deployment target like
+`env_name` and `build_type` — from the detected context. It's an ordered list of
+rules; the **first matching rule wins**, merged over a `default`. Each rule's
+`set:` is an open-ended map, so you can emit any variables you like (`cluster`,
+`region`, …), not just those two.
+
+```yaml
+deploy:
+  rules:                          # first match wins
+    - if:
+        tag:
+          regex: '^v[0-9]+\.[0-9]+\.[0-9]+$'   # strict semver tag
+      set: { env_name: prod, build_type: production }
+
+    - if:
+        branch: main              # bare strings are globs; `main` is exact
+      set: { env_name: prod, build_type: production }
+
+    - if:
+        branch: "release/*"
+      set: { env_name: dev, build_type: staging }   # no staging env → dev
+
+    - if:                         # (develop OR feature/*) AND not a PR build
+        all:
+          - any:
+              - { branch: develop }
+              - { branch: "feature/*" }
+          - not: { event: pull_request }
+      set: { env_name: dev, build_type: development }
+
+  default:
+    set: { env_name: dev, build_type: development }
+```
+
+**Conditions** (`if:`) are a small boolean tree, so you get full `&&`/`||`/`()`
+without an expression language:
+
+- A plain mapping is **AND** across fields: `{ branch: main, event: push }`.
+- `all:` / `any:` / `not:` are **AND** / **OR** / **NOT**; nest them to group.
+- A field value can be one pattern or a **list** (OR over values):
+  `event: [push, manual]`.
+
+**Matching** a field value:
+
+- A bare string is a **glob** — `*` matches any run of characters (including
+  `/`), `?` matches one, everything else is literal and anchored (so `main`
+  matches only `main`, `release/*` matches `release/anything`).
+- `{ regex: '…' }` is a full Go regexp (anchor it yourself; single-quote it so
+  backslashes stay literal) — use it for strict patterns like semver.
+- `{ glob: '…' }` is an explicit glob, if you ever want it spelled out.
+
+**Matchable fields:** any output field, by its output name — `git_branch`,
+`git_commit_sha`, `git_commit_sha_short`, `git_tag`, `git_dirty`,
+`files_checksum`, `git_repo_url`, `git_repository`, `actor`, `event`,
+`ci_platform`, `ci_build_url`, `ci_build_number`, `ci_workflow`,
+`runtime_hostname`. The `git_*` fields also accept a short alias (`branch`,
+`tag`, `commit_sha`, `commit_sha_short`, `dirty`, `repo_url`, `repository`), so
+`branch: main` and `git_branch: main` are equivalent. An unknown field name is a
+load error, so typos surface immediately.
+
+The resolved variables appear as additional output fields in every format, after
+the detected ones; `--explain` notes which rule set each (`deploy: rule #2
+matched`, `deploy: default`, or `deploy: explicit override`). To force a value
+from the command line, overriding the rules:
+
+```sh
+contextinfo --env-name=prod --build-type=production
+```
+
+> contextinfo is local-first, so a local checkout reports `event=manual` (not
+> `push`). If a rule should fire both in CI and locally on a branch, match on
+> `branch` alone rather than gating on `event: push`.
+
 ## Library usage
 
 ```go
@@ -215,7 +334,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/Th0masL/contextinfo/pkg/contextinfo"
+	"github.com/Th0masL/contextinfo"
 )
 
 func main() {
@@ -224,14 +343,20 @@ func main() {
 }
 ```
 
-`Detect()` returns a single flat [`contextinfo.Info`](pkg/contextinfo/contextinfo.go)
-value. Options: `contextinfo.WithDir(path)` inspects another directory,
-`contextinfo.WithoutFilesChecksum()` skips the file checksum, and
-`contextinfo.WithExplain()` adds the `<field>_explained` source notes. `Detect`
-holds no global state, so it is safe to call concurrently for different
-directories (e.g. one goroutine per Terraform stack). It also offers
-`EnvVars(prefix)`, `FlatJSON(prefix)`, `TFVarsHCL(prefix)`, and `Text()` for
-rendering.
+`Detect()` returns a single flat [`contextinfo.Info`](contextinfo.go) value.
+Detection options: `contextinfo.WithDir(path)` inspects another directory and
+`contextinfo.WithoutFilesChecksum()` skips the file checksum. `Detect` holds no
+global state, so it is safe to call concurrently for different directories (e.g.
+one goroutine per Terraform stack). For long-running embedders,
+`contextinfo.DetectContext(ctx, opts...)` bounds the git subprocesses with a
+context (cancel/timeout). To apply deploy rules in code, load them with the
+config subpackage and pass `contextinfo.WithDeployRules(...)`, or call
+`contextinfo.Resolve(rules, info)` directly.
+
+Rendering is separate from detection: `EnvVars`, `FlatJSON`, `TFVarsHCL`, and
+`Text` each take a `contextinfo.RenderOptions{Prefix, Explain}` — so the same
+`Info` can be rendered with or without a prefix and with or without the
+`<field>_explained` companions.
 
 ## Detected CI platforms
 
@@ -268,7 +393,7 @@ go run ./cmd/contextinfo
 ```
 
 The CI-detection tests run against committed environment dumps in
-[`pkg/contextinfo/testdata/env`](pkg/contextinfo/testdata/env) (captured from
+[`testdata/env`](testdata/env) (captured from
 real GitHub Actions and GitLab CI runs), so the per-provider mapping is checked
 against actual platform output rather than assumptions.
 
