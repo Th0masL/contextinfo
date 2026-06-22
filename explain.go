@@ -3,14 +3,12 @@ package contextinfo
 // buildExplained assembles the per-field source notes used for the
 // "<field>_explained" companions. It takes the values and sources already
 // computed during detection (ci + its source labels, the resolved info, the
-// branch source, and whether the checksum ran), so it never re-runs git or
-// re-reads the environment. The CI source labels come from the per-provider
-// detectors (ciSrc), so there is no duplicated var-name table to drift. The notes
-// name variables and commands, not their contents, so explaining never exposes
-// secrets.
-func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc string, checksum bool) map[string]string {
-	inRepo := info.GitCommitSHA != ""
-
+// branch source, whether we're in a repo, and whether the checksum ran), so it
+// never re-runs git or re-reads the environment. The CI source labels come from
+// the per-provider detectors (ciSrc), so there is no duplicated var-name table to
+// drift. The notes name variables and commands, not their contents, so explaining
+// never exposes secrets.
+func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc string, inRepo, checksum bool) map[string]string {
 	tag := "git describe --tags --exact-match"
 	if info.GitTag == "" {
 		if inRepo {
@@ -21,7 +19,10 @@ func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc str
 	}
 
 	dirty := "git status --porcelain (empty)"
-	if info.GitDirty {
+	switch {
+	case !inRepo:
+		dirty = "none (not a git repository)"
+	case info.GitDirty:
 		dirty = "git status --porcelain (non-empty)"
 	}
 
@@ -29,7 +30,7 @@ func buildExplained(ci ciData, ciSrc map[string]string, info Info, branchSrc str
 	switch {
 	case !checksum:
 		cksum = "disabled (--no-files-checksum)"
-	case info.FilesChecksum == "":
+	case !inRepo:
 		cksum = "none (not a git repository)"
 	}
 

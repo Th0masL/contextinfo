@@ -1,6 +1,7 @@
 package contextinfo
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,11 +14,11 @@ import (
 func TestFilesChecksumStableAndSensitive(t *testing.T) {
 	dir := newRepo(t)
 
-	sum1 := filesChecksum(dir)
+	sum1 := filesChecksum(context.Background(), dir)
 	if sum1 == "" {
 		t.Fatal("empty checksum in a repo")
 	}
-	if filesChecksum(dir) != sum1 {
+	if filesChecksum(context.Background(), dir) != sum1 {
 		t.Error("checksum is not stable across runs with no change")
 	}
 
@@ -25,7 +26,7 @@ func TestFilesChecksumStableAndSensitive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sum2 := filesChecksum(dir)
+	sum2 := filesChecksum(context.Background(), dir)
 	if sum2 == sum1 {
 		t.Error("checksum unchanged after editing a tracked file")
 	}
@@ -34,7 +35,7 @@ func TestFilesChecksumStableAndSensitive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if filesChecksum(dir) == sum2 {
+	if filesChecksum(context.Background(), dir) == sum2 {
 		t.Error("checksum unchanged after adding an untracked file")
 	}
 }
@@ -45,12 +46,12 @@ func TestFilesChecksumIgnoresGitignored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	base := filesChecksum(dir) // .gitignore itself is a non-ignored file -> counted once
+	base := filesChecksum(context.Background(), dir) // .gitignore itself is a non-ignored file -> counted once
 
 	if err := os.WriteFile(filepath.Join(dir, "ignored.txt"), []byte("secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if filesChecksum(dir) != base {
+	if filesChecksum(context.Background(), dir) != base {
 		t.Error("checksum changed after adding a git-ignored file")
 	}
 }
@@ -70,7 +71,7 @@ func TestFilesChecksumFollowsSymlinkTarget(t *testing.T) {
 	}
 	runGit(t, dir, "add", "shared.tf")
 
-	sum1 := filesChecksum(dir)
+	sum1 := filesChecksum(context.Background(), dir)
 	if sum1 == "" {
 		t.Fatal("empty checksum")
 	}
@@ -78,7 +79,7 @@ func TestFilesChecksumFollowsSymlinkTarget(t *testing.T) {
 	if err := os.WriteFile(shared, []byte("v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if filesChecksum(dir) == sum1 {
+	if filesChecksum(context.Background(), dir) == sum1 {
 		t.Error("checksum did not change when the symlink target content changed")
 	}
 }
@@ -90,14 +91,14 @@ func TestFilesChecksumBrokenSymlinkSafe(t *testing.T) {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
 	runGit(t, dir, "add", "dangling")
-	if filesChecksum(dir) == "" {
+	if filesChecksum(context.Background(), dir) == "" {
 		t.Error("a broken symlink should not blank the checksum")
 	}
 }
 
 // Outside a git repository the checksum is empty (it has no file list to hash).
 func TestFilesChecksumOutsideRepo(t *testing.T) {
-	if s := filesChecksum(t.TempDir()); s != "" {
+	if s := filesChecksum(context.Background(), t.TempDir()); s != "" {
 		t.Errorf("checksum outside a repo = %q, want empty", s)
 	}
 }
@@ -136,7 +137,7 @@ func TestFilesChecksumMatchesShellPipeline(t *testing.T) {
 		t.Skipf("shell pipeline failed (missing tool such as sort -z / xargs -0?): %v", err)
 	}
 	want := strings.TrimSpace(string(out))
-	if got := filesChecksum(dir); got != want {
-		t.Errorf("filesChecksum(dir) = %q\nshell pipeline       = %q", got, want)
+	if got := filesChecksum(context.Background(), dir); got != want {
+		t.Errorf("filesChecksum(context.Background(), dir) = %q\nshell pipeline       = %q", got, want)
 	}
 }

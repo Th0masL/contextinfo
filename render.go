@@ -3,8 +3,19 @@ package contextinfo
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
+
+// RenderOptions controls how an Info is rendered. Both knobs are render-time (a
+// detected Info can be rendered any number of ways): Prefix is prepended to every
+// variable name (envvar/json/tfvars; ignored by Text), and Explain adds a
+// "<field>_explained" companion after each field naming where its value came from
+// (provenance is always captured during detection; this only gates emission).
+type RenderOptions struct {
+	Prefix  string
+	Explain bool
+}
 
 // flatPair is a single flattened key/value pair (value is a string or bool).
 type flatPair struct {
@@ -13,11 +24,10 @@ type flatPair struct {
 }
 
 // flatten returns the context as ordered key/value pairs (matching the Info
-// field order), each key prefixed with prefix (use "" for none). When the Info
-// was detected WithExplain, each field is followed by a "<key>_explained" pair
-// carrying the source note (provenance is always captured; this only gates
-// whether it is emitted).
-func (i Info) flatten(prefix string) []flatPair {
+// field order), applying opts.Prefix and, when opts.Explain is set, interleaving
+// each field's "<key>_explained" companion.
+func (i Info) flatten(opts RenderOptions) []flatPair {
+	prefix := opts.Prefix
 	base := []flatPair{
 		{prefix + "git_branch", i.GitBranch},
 		{prefix + "git_commit_sha", i.GitCommitSHA},
@@ -35,7 +45,26 @@ func (i Info) flatten(prefix string) []flatPair {
 		{prefix + "ci_workflow", i.CIWorkflow},
 		{prefix + "runtime_hostname", i.RuntimeHostname},
 	}
-	if !i.explain {
+	// Derived deploy variables (env_name, build_type, …) follow the detected
+	// fields, sorted for stable output. A derived key that collides with a
+	// built-in field name is skipped so the output stays unique (built-ins win).
+	if len(i.derived) > 0 {
+		builtin := make(map[string]bool, len(base))
+		for _, p := range base {
+			builtin[strings.TrimPrefix(p.key, prefix)] = true
+		}
+		keys := make([]string, 0, len(i.derived))
+		for k := range i.derived {
+			if !builtin[k] {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			base = append(base, flatPair{prefix + k, i.derived[k]})
+		}
+	}
+	if !opts.Explain {
 		return base
 	}
 	out := make([]flatPair, 0, len(base)*2)
@@ -48,9 +77,9 @@ func (i Info) flatten(prefix string) []flatPair {
 
 // FlatJSON renders the context as a flat JSON object keyed by the Info json tags
 // (e.g. "git_commit_sha"), value types preserved (bools stay bool), keys in a
-// stable order, each prefixed with prefix (use "" for none).
-func (i Info) FlatJSON(prefix string) ([]byte, error) {
-	pairs := i.flatten(prefix)
+// stable order, rendered per opts (Prefix, Explain).
+func (i Info) FlatJSON(opts RenderOptions) ([]byte, error) {
+	pairs := i.flatten(opts)
 	var b strings.Builder
 	b.WriteString("{\n")
 	for idx, p := range pairs {
@@ -74,9 +103,9 @@ func (i Info) FlatJSON(prefix string) ([]byte, error) {
 
 // TFVarsHCL renders flat Terraform variables as a .tfvars (HCL) document. String
 // values are safely quoted, including escaping of the ${ and %{ interpolation
-// markers. Each variable name is prefixed with prefix (use "" for none).
-func (i Info) TFVarsHCL(prefix string) string {
-	pairs := i.flatten(prefix)
+// markers. Rendered per opts (Prefix, Explain).
+func (i Info) TFVarsHCL(opts RenderOptions) string {
+	pairs := i.flatten(opts)
 	width := 0
 	for _, p := range pairs {
 		if len(p.key) > width {
@@ -98,9 +127,9 @@ func (i Info) TFVarsHCL(prefix string) string {
 // To export them for a child process such as terraform:
 //
 //	set -a; eval "$(contextinfo --format=envvar --prefix TF_VAR_)"; set +a
-func (i Info) EnvVars(prefix string) string {
+func (i Info) EnvVars(opts RenderOptions) string {
 	var b strings.Builder
-	for _, p := range i.flatten(prefix) {
+	for _, p := range i.flatten(opts) {
 		if v, ok := p.val.(bool); ok {
 			fmt.Fprintf(&b, "%s=%t\n", p.key, v)
 			continue
@@ -111,9 +140,10 @@ func (i Info) EnvVars(prefix string) string {
 }
 
 // Text renders the context as aligned "key  value" lines, one field per line
-// (including any "<key>_explained" companions when detected WithExplain).
-func (i Info) Text() string {
-	pairs := i.flatten("")
+// (including the "<key>_explained" companions when opts.Explain is set). Text is
+// the human-readable format and never prefixes, so opts.Prefix is ignored.
+func (i Info) Text(opts RenderOptions) string {
+	pairs := i.flatten(RenderOptions{Explain: opts.Explain})
 	width := 0
 	for _, p := range pairs {
 		if len(p.key) > width {

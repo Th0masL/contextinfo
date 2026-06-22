@@ -10,9 +10,10 @@ func gitlabData(env func(string) string) (ciData, map[string]string) {
 		event:      gitlabEvent(env),
 		repository: env("CI_PROJECT_PATH"),
 		repoURL:    env("CI_PROJECT_URL"), // already the HTTPS repo URL
-		// CI_COMMIT_BRANCH is set only on branch pipelines (empty on tag pipelines),
-		// so it never mislabels a tag checkout as a branch.
-		branchHint:  env("CI_COMMIT_BRANCH"),
+		// CI_COMMIT_BRANCH is set on branch pipelines (empty on tag and
+		// merge-request pipelines); on an MR the source branch is in
+		// CI_MERGE_REQUEST_SOURCE_BRANCH_NAME. Neither is ever a tag name.
+		branchHint:  firstNonEmpty(env("CI_COMMIT_BRANCH"), env("CI_MERGE_REQUEST_SOURCE_BRANCH_NAME")),
 		buildURL:    firstNonEmpty(env("CI_PIPELINE_URL"), env("CI_JOB_URL")),
 		buildNumber: firstNonEmpty(env("CI_PIPELINE_IID"), env("CI_PIPELINE_ID")),
 		workflow:    env("CI_JOB_NAME"),
@@ -24,7 +25,7 @@ func gitlabData(env func(string) string) (ciData, map[string]string) {
 		"event":           "CI_PIPELINE_SOURCE (+CI_COMMIT_TAG), normalized",
 		"git_repository":  "CI_PROJECT_PATH",
 		"git_repo_url":    "CI_PROJECT_URL",
-		"git_branch":      "CI_COMMIT_BRANCH",
+		"git_branch":      "CI_COMMIT_BRANCH / CI_MERGE_REQUEST_SOURCE_BRANCH_NAME",
 		"ci_build_url":    "CI_PIPELINE_URL",
 		"ci_build_number": "CI_PIPELINE_IID",
 		"ci_workflow":     "CI_JOB_NAME",

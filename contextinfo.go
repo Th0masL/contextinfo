@@ -12,7 +12,10 @@
 // failures (no git, not in CI, ...) yield empty fields rather than errors.
 package contextinfo
 
-import "os"
+import (
+	"context"
+	"os"
+)
 
 // Info is the detected context as a single flat set of fields. Each field is
 // resolved from the best available source: git and the OS locally, with CI
@@ -39,12 +42,17 @@ type Info struct {
 	// Host runtime.
 	RuntimeHostname string `json:"runtime_hostname"` // os.Hostname()
 
-	// explained always maps each field to a note of where its value came from,
-	// captured during detection. explain (set by WithExplain) gates whether
-	// flatten emits them as "<field>_explained" companions. Both are unexported
-	// (not part of the JSON struct shape).
+	// derived holds deploy variables computed from the context by deploy rules
+	// (and/or explicit overrides) — e.g. env_name, build_type. It is empty unless
+	// WithDeployRules/WithDeployVar are used. These render as additional output
+	// fields after the detected ones.
+	derived map[string]string
+
+	// explained maps each field to a note of where its value came from, captured
+	// during detection. It is always populated; rendering with
+	// RenderOptions.Explain decides whether to emit the "<field>_explained"
+	// companions. Unexported (not part of the JSON struct shape).
 	explained map[string]string
-	explain   bool
 }
 
 // Option configures Detect.
@@ -52,9 +60,12 @@ type Option func(*options)
 
 // options holds the resolved configuration for a Detect call (see Option).
 type options struct {
-	dir      string
-	checksum bool
-	explain  bool
+	ctx        context.Context // bounds the git subprocesses (nil → Background)
+	dir        string
+	checksum   bool
+	deploy     DeployRules       // deploy rules to apply (see WithDeployRules)
+	hasDeploy  bool              // whether deploy rules were supplied
+	deployVars map[string]string // explicit deploy-var overrides (highest precedence)
 }
 
 // WithoutFilesChecksum disables computing files_checksum. By default Detect computes it,
@@ -71,12 +82,28 @@ func WithDir(dir string) Option {
 	return func(o *options) { o.dir = dir }
 }
 
-// WithExplain makes Detect also record, for each field, where its value came
-// from. The notes surface as "<field>_explained" companions in the rendered
-// output (EnvVars/FlatJSON/TFVarsHCL/Text), carrying the source text
-// (variable and command names), never raw env values.
-func WithExplain() Option {
-	return func(o *options) { o.explain = true }
+// WithDeployRules applies a set of deploy rules to the detected context. Each
+// rule maps a condition over the detected fields to a set of variables (such as
+// env_name and build_type); the first matching rule wins, merged over the
+// default. The results render as additional output fields. Rules are usually
+// loaded from a .contextinfo.yaml via the config subpackage.
+func WithDeployRules(r DeployRules) Option {
+	return func(o *options) {
+		o.deploy = r
+		o.hasDeploy = true
+	}
+}
+
+// WithDeployVar forces a derived deploy variable to value, overriding whatever
+// the deploy rules would set for that key. The CLI uses this for --env-name and
+// --build-type.
+func WithDeployVar(key, value string) Option {
+	return func(o *options) {
+		if o.deployVars == nil {
+			o.deployVars = map[string]string{}
+		}
+		o.deployVars[key] = value
+	}
 }
 
 // Detect gathers context from the process environment and a working directory
@@ -85,7 +112,14 @@ func WithExplain() Option {
 // WithoutFilesChecksum to skip that work. Detect keeps no global state and is safe
 // to call concurrently for different directories.
 func Detect(opts ...Option) Info {
-	o := options{checksum: true}
+	return DetectContext(context.Background(), opts...)
+}
+
+// DetectContext is Detect with a caller-supplied context that bounds the git
+// subprocesses, so a long-running embedder can cancel or time out detection (a
+// cancelled context yields empty git-derived fields, never a panic).
+func DetectContext(ctx context.Context, opts ...Option) Info {
+	o := options{ctx: ctx, checksum: true}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -96,22 +130,41 @@ func Detect(opts ...Option) Info {
 // (os.Getenv in production, a fixture map in tests), while git and host state
 // come from the current working directory and machine.
 func detect(getenv func(string) string, o options) Info {
+	ctx := o.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ci, ciSrc := detectCI(getenv)
 
-	sha := gitOutput(o.dir, "rev-parse", "HEAD")
-	short := sha
-	if len(short) > 7 {
-		short = short[:7]
+	// One probe decides whether to do any git work: outside a repo the other git
+	// calls would all fail, so we skip them (and the branch comes from the CI hint
+	// alone). This also distinguishes "not a repo" from "empty repo" for --explain.
+	inRepo := gitOutput(ctx, o.dir, "rev-parse", "--is-inside-work-tree") == "true"
+
+	var sha, short, tag, remote, branch, branchSrc string
+	dirty := false
+	if inRepo {
+		sha = gitOutput(ctx, o.dir, "rev-parse", "HEAD")
+		short = sha
+		if len(short) > 7 {
+			short = short[:7]
+		}
+		tag = gitOutput(ctx, o.dir, "describe", "--tags", "--exact-match")
+		dirty = gitDirty(ctx, o.dir)
+		remote = gitRemoteURL(ctx, o.dir)
+		branch, branchSrc = gitBranch(ctx, o.dir, ci.branchHint, ciSrc["git_branch"])
+	} else if ci.branchHint != "" {
+		branch, branchSrc = ci.branchHint, ciSrc["git_branch"]
+	} else {
+		branch, branchSrc = "", "none (not a git repository)"
 	}
-	branch, branchSrc := gitBranch(o.dir, ci.branchHint, ciSrc["git_branch"])
-	remote := gitRemoteURL(o.dir)
 
 	info := Info{
 		GitBranch:         branch,
 		GitCommitSHA:      sha,
 		GitCommitSHAShort: short,
-		GitTag:            gitOutput(o.dir, "describe", "--tags", "--exact-match"),
-		GitDirty:          gitDirty(o.dir),
+		GitTag:            tag,
+		GitDirty:          dirty,
 		GitRepoURL:        firstNonEmpty(ci.repoURL, httpsRepoURL(remote)),
 		GitRepository:     firstNonEmpty(ci.repository, repoSlug(remote)),
 		Actor:             firstNonEmpty(ci.actor, osUser()),
@@ -122,12 +175,26 @@ func detect(getenv func(string) string, o options) Info {
 		CIWorkflow:        ci.workflow,
 		RuntimeHostname:   hostname(),
 	}
-	if o.checksum {
-		info.FilesChecksum = filesChecksum(o.dir)
+	if inRepo && o.checksum {
+		info.FilesChecksum = filesChecksum(ctx, o.dir)
 	}
 	// Provenance is captured in one pass from the values/sources already computed
-	// (no re-derivation); explain only gates whether flatten emits it.
-	info.explained = buildExplained(ci, ciSrc, info, branchSrc, o.checksum)
-	info.explain = o.explain
+	// (no re-derivation); RenderOptions.Explain later gates whether it is emitted.
+	info.explained = buildExplained(ci, ciSrc, info, branchSrc, inRepo, o.checksum)
+
+	// Derived deploy variables: apply rules (default, then first matching rule),
+	// then explicit overrides win. Provenance is recorded into explained so the
+	// "<key>_explained" companions cover these too.
+	if o.hasDeploy || len(o.deployVars) > 0 {
+		vars, src := o.deploy.Resolve(info.lookup())
+		for k, v := range o.deployVars {
+			vars[k] = v
+			src[k] = "deploy: explicit override"
+		}
+		info.derived = vars
+		for k, s := range src {
+			info.explained[k] = s
+		}
+	}
 	return info
 }

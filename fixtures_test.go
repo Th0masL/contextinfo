@@ -58,6 +58,10 @@ func TestGoldenFixtures(t *testing.T) {
 		"circleci_release-on-github_v1.0.2.txt":         {"circleci", "tag", ""},
 		"github_schedule_on-main-branch.txt":            {"github-actions", "schedule", "main"},
 		"gitlab_schedule_on-main-branch.txt":            {"gitlab-ci", "schedule", "main"},
+		// Real PR/MR builds: event normalizes to pull_request; the branch hint is
+		// the source branch (GITHUB_HEAD_REF / CI_MERGE_REQUEST_SOURCE_BRANCH_NAME).
+		"github_open-pr_against-main-branch.txt": {"github-actions", "pull_request", "test-branch-2"},
+		"gitlab_open-mr_against-main-branch.txt": {"gitlab-ci", "pull_request", "test-branch-2"},
 		// The "merge-pr" captures are the post-merge PUSH to main (the printenv jobs
 		// don't run on pull_request / merge_request pipelines), so the event is
 		// "push", not "pull_request" — they don't add pull_request coverage.
