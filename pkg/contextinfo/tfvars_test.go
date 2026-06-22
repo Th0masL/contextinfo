@@ -1,11 +1,35 @@
 package contextinfo
 
 import (
-	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+// flatten() is hand-maintained in lockstep with the Info struct; this fails if a
+// field is added/removed/reordered in one but not the other, so the explicit list
+// can't silently drift. (flatten feeds envvar/json/tfvars.)
+func TestFlattenMatchesStructTags(t *testing.T) {
+	rt := reflect.TypeOf(Info{})
+	var tags []string
+	for i := 0; i < rt.NumField(); i++ {
+		tag := rt.Field(i).Tag.Get("json")
+		if c := strings.IndexByte(tag, ','); c >= 0 {
+			tag = tag[:c]
+		}
+		if tag != "" && tag != "-" {
+			tags = append(tags, tag)
+		}
+	}
+	var keys []string
+	for _, p := range (Info{}).flatten("") {
+		keys = append(keys, p.key)
+	}
+	if !reflect.DeepEqual(tags, keys) {
+		t.Errorf("flatten() keys drifted from Info json tags:\n  struct : %v\n  flatten: %v", tags, keys)
+	}
+}
 
 // sampleInfo returns a fully-populated Info used by the rendering tests.
 func sampleInfo() Info {
@@ -15,7 +39,7 @@ func sampleInfo() Info {
 		GitCommitSHAShort: "a1b2c3d",
 		GitTag:            "",
 		GitDirty:          false,
-		GitChecksum:       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		FilesChecksum:     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		GitRepoURL:        "https://github.com/o/r",
 		GitRepository:     "o/r",
 		Actor:             "octocat",
@@ -65,15 +89,6 @@ func TestFlatJSONPrefix(t *testing.T) {
 	}
 	if _, ok := m["git_commit_sha"]; ok {
 		t.Error("unprefixed git_commit_sha should not be present when a prefix is set")
-	}
-}
-
-// TFVarsJSON is exactly FlatJSON (the .tfvars.json form is a flat JSON object).
-func TestTFVarsJSONEqualsFlatJSON(t *testing.T) {
-	a, _ := sampleInfo().TFVarsJSON("p_")
-	b, _ := sampleInfo().FlatJSON("p_")
-	if !bytes.Equal(a, b) {
-		t.Errorf("TFVarsJSON and FlatJSON differ:\n%s\n---\n%s", a, b)
 	}
 }
 

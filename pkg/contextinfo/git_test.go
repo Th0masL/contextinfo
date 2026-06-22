@@ -43,36 +43,35 @@ func runGit(t *testing.T, dir string, args ...string) {
 }
 
 // On a real repo the git helpers report the commit, branch, clean/dirty state,
-// origin remote, and tag.
+// origin remote, and tag. The helpers take the repo dir, so no chdir is needed.
 func TestGitOnRepo(t *testing.T) {
 	dir := newRepo(t)
-	t.Chdir(dir)
 
-	if sha := gitOutput("rev-parse", "HEAD"); len(sha) != 40 {
+	if sha := gitOutput(dir, "rev-parse", "HEAD"); len(sha) != 40 {
 		t.Errorf("sha = %q (len %d), want 40 hex chars", sha, len(sha))
 	}
-	if b := gitBranch(""); b != "main" {
-		t.Errorf("branch = %q, want main", b)
+	if b, src := gitBranch(dir, "", ""); b != "main" || src != "git symbolic-ref --short HEAD" {
+		t.Errorf("branch = %q (source %q), want main from symbolic-ref", b, src)
 	}
-	if gitDirty() {
+	if gitDirty(dir) {
 		t.Error("expected a clean tree")
 	}
-	if got := gitRemoteURL(); got != "git@github.com:acme/widgets.git" {
+	if got := gitRemoteURL(dir); got != "git@github.com:acme/widgets.git" {
 		t.Errorf("remote = %q", got)
 	}
-	if got := gitOutput("describe", "--tags", "--exact-match"); got != "" {
+	if got := gitOutput(dir, "describe", "--tags", "--exact-match"); got != "" {
 		t.Errorf("unexpected tag %q", got)
 	}
 
 	runGit(t, dir, "tag", "v1.0.0")
-	if got := gitOutput("describe", "--tags", "--exact-match"); got != "v1.0.0" {
+	if got := gitOutput(dir, "describe", "--tags", "--exact-match"); got != "v1.0.0" {
 		t.Errorf("tag = %q, want v1.0.0", got)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !gitDirty() {
+	if !gitDirty(dir) {
 		t.Error("expected a dirty tree after modification")
 	}
 }
@@ -81,27 +80,26 @@ func TestGitOnRepo(t *testing.T) {
 // supplied hint, or "" when there is none.
 func TestGitBranchDetachedUsesHint(t *testing.T) {
 	dir := newRepo(t)
-	t.Chdir(dir)
 	runGit(t, dir, "checkout", "--detach") // mimic a CI checkout
 
-	if b := gitBranch("feature/x"); b != "feature/x" {
-		t.Errorf("detached: branch = %q, want hint feature/x", b)
+	if b, src := gitBranch(dir, "feature/x", "CI hint"); b != "feature/x" || src != "CI hint" {
+		t.Errorf("detached: branch = %q (source %q), want hint feature/x labelled 'CI hint'", b, src)
 	}
-	if b := gitBranch(""); b != "" {
+	if b, _ := gitBranch(dir, "", ""); b != "" {
 		t.Errorf("detached without hint: branch = %q, want empty", b)
 	}
 }
 
 // Outside a repository the git helpers return empty/false rather than erroring.
 func TestGitOutsideRepo(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if sha := gitOutput("rev-parse", "HEAD"); sha != "" {
+	dir := t.TempDir() // not a git repo
+	if sha := gitOutput(dir, "rev-parse", "HEAD"); sha != "" {
 		t.Errorf("sha outside a repo = %q, want empty", sha)
 	}
-	if gitDirty() {
+	if gitDirty(dir) {
 		t.Error("dirty outside a repo should be false")
 	}
-	if r := gitRemoteURL(); r != "" {
+	if r := gitRemoteURL(dir); r != "" {
 		t.Errorf("remote outside a repo = %q, want empty", r)
 	}
 }

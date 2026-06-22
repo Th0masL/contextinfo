@@ -44,11 +44,11 @@ available source — git/OS locally, with CI taking precedence where noted.
 | `git_commit_sha_short` | first 7 chars of `git_commit_sha` | git |
 | `git_tag` | tag pointing at HEAD (`""` if none) | git |
 | `git_dirty` | working tree has uncommitted changes | git |
-| `git_checksum` | SHA-256 of the non-ignored working-dir files | git (`--no-checksum` to skip) |
+| `files_checksum` | SHA-256 of the non-ignored working-dir files | git (`--no-files-checksum` to skip) |
 | `git_repo_url` | HTTPS web URL of the repository | git remote (ssh→https); CI when available |
 | `git_repository` | `owner/repo` slug | git remote; CI override |
 | `actor` | who triggered the run | CI user, else local OS user |
-| `event` | what triggered the run (`push`, `release`, …) | CI, else `manual` |
+| `event` | normalized trigger: `push`/`tag`/`pull_request`/`release`/`schedule`/`manual` | CI, else `manual` |
 | `ci_platform` | `github-actions`, `gitlab-ci`, `circleci`, `unknown`, or `""` locally | CI |
 | `ci_build_url` | current build/pipeline URL | CI |
 | `ci_build_number` | build/pipeline number | CI |
@@ -62,12 +62,13 @@ $ contextinfo                      # shell NAME=value lines (default)
 $ contextinfo --format=json        # flat JSON object
 $ contextinfo --format=text        # aligned key/value text
 $ contextinfo --format=tfvars      # Terraform variables (HCL)
-$ contextinfo --format=tfvars-json # Terraform variables (JSON)
+$ contextinfo --dir /path/to/repo  # inspect another directory (default: cwd)
+$ contextinfo --explain            # add <name>_explained source notes
 $ contextinfo --version
 $ contextinfo --help               # full usage + examples
 ```
 
-`envvar`, `tfvars`, and `tfvars-json` take an optional **`--prefix`** (empty by
+`envvar`, `json`, and `tfvars` take an optional **`--prefix`** (empty by
 default):
 
 ```console
@@ -105,7 +106,7 @@ Flat JSON output (`--format=json`):
   "git_commit_sha_short": "a1b2c3d",
   "git_tag": "",
   "git_dirty": false,
-  "git_checksum": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "files_checksum": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   "git_repo_url": "https://github.com/org/repo",
   "git_repository": "org/repo",
   "actor": "octocat",
@@ -124,27 +125,65 @@ falls back to your OS user.
 
 ### Content checksum
 
-`git_checksum` is a SHA-256 fingerprint of the **non-ignored files in the working
-directory** (`git ls-files --cached --others --exclude-standard`, sorted) — a
-content identity independent of commit history. Two commits with identical files
-(an empty commit, a revert) share a checksum, and uncommitted edits change it,
-which the commit SHA alone can't tell you.
+`files_checksum` is a SHA-256 fingerprint of the **non-ignored files in the
+working directory** — a content identity independent of commit history. Two
+commits with identical files (an empty commit, a revert) share a checksum, and
+uncommitted edits change it, which the commit SHA alone can't tell you. Symlinks
+are followed and the **target's** content is hashed (handy for Terraform stacks
+that symlink shared files in from parent folders, so editing the shared file
+moves the checksum).
 
-Symlinks are followed and the **target's** content is hashed — handy for
-Terraform stacks that symlink shared files in from parent folders, so editing the
-shared file moves the checksum. It is computed by default; pass `--no-checksum`
-(or `contextinfo.WithoutChecksum()` in the library) to skip it when reading every
+It is **byte-for-byte reproducible** — `contextinfo` is just a native,
+dependency-free implementation of this shell pipeline:
+
+```console
+$ git ls-files -z --cached --others --exclude-standard \
+    | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}'
+```
+
+(`LC_ALL=C` gives byte-order sorting, `-z`/`-0` handle any filename, `-r` keeps an
+empty repo working.) Unreadable or non-regular paths — dangling symlinks,
+directories, permission errors — are skipped, exactly as `sha256sum` skips them.
+
+Computed by default; pass `--no-files-checksum` (or
+`contextinfo.WithoutFilesChecksum()` in the library) to skip it when reading every
 file would be too expensive on a large tree.
+
+### Explaining where values came from (`--explain`)
+
+Add `--explain` to **any** format to emit, after each field, a `<field>_explained`
+companion naming the source of the value — the env var(s) or git command used. It
+names variables and commands, not their contents, so it never exposes secrets.
+Handy for "why is this empty / where did this come from?":
+
+```console
+$ contextinfo --explain
+git_branch='main'
+git_branch_explained='git symbolic-ref --short HEAD'
+git_commit_sha='5d98397c…'
+git_commit_sha_explained='git rev-parse HEAD'
+git_tag=''
+git_tag_explained='git describe --tags --exact-match (no tag at HEAD)'
+event='manual'
+event_explained='default (not in CI)'
+…
+```
+
+In CI the notes name the winning provider variables — e.g.
+`actor_explained='GITHUB_ACTOR'`, `git_repo_url_explained='GITHUB_SERVER_URL + GITHUB_REPOSITORY'`,
+or `git_branch_explained='none (tag or detached HEAD)'`. It works with every
+format (the companions are just extra keys), and `contextinfo.WithExplain()` does
+the same in the library.
 
 ### Terraform variables
 
-The `tfvars` / `tfvars-json` formats emit flat variables you can drop next to
+The `tfvars` (HCL) and `json` formats emit flat variables you can drop next to
 your Terraform config — Terraform auto-loads `*.auto.tfvars` and
-`*.auto.tfvars.json`:
+`*.auto.tfvars.json` (a flat JSON object is valid `.tfvars.json`):
 
 ```console
-$ contextinfo --format=tfvars-json > contextinfo.auto.tfvars.json
-$ contextinfo --format=tfvars      > contextinfo.auto.tfvars
+$ contextinfo --format=json   > contextinfo.auto.tfvars.json
+$ contextinfo --format=tfvars > contextinfo.auto.tfvars
 ```
 
 ```hcl
@@ -186,9 +225,13 @@ func main() {
 ```
 
 `Detect()` returns a single flat [`contextinfo.Info`](pkg/contextinfo/contextinfo.go)
-value (pass `contextinfo.WithoutChecksum()` to skip the file checksum). It also
-offers `EnvVars(prefix)`, `FlatJSON(prefix)`, `TFVarsHCL(prefix)`, and
-`TFVarsJSON(prefix)` for rendering.
+value. Options: `contextinfo.WithDir(path)` inspects another directory,
+`contextinfo.WithoutFilesChecksum()` skips the file checksum, and
+`contextinfo.WithExplain()` adds the `<field>_explained` source notes. `Detect`
+holds no global state, so it is safe to call concurrently for different
+directories (e.g. one goroutine per Terraform stack). It also offers
+`EnvVars(prefix)`, `FlatJSON(prefix)`, `TFVarsHCL(prefix)`, and `Text()` for
+rendering.
 
 ## Detected CI platforms
 
@@ -207,12 +250,15 @@ Other CI systems (Jenkins, Travis, Buildkite, …) are reported as `unknown` for
 now — adding them requires reviewing each one's real environment variables, not
 guessing. Contributions welcome.
 
-CircleCI exposes no single "event" variable, so `event` is derived: `tag` when
-`CIRCLE_TAG` is set, otherwise `push` for a branch build.
+`event` is **normalized** to a common vocabulary across providers — `push`,
+`tag`, `pull_request`, `release`, `schedule`, `manual` — so a GitLab tag pipeline
+and a GitHub tag push both report `tag` (uncommon platform triggers pass through
+their raw value). CircleCI has no event variable, so it's derived from
+`CIRCLE_TAG` / `CIRCLE_PULL_REQUEST` / `CIRCLE_BRANCH`.
 
 ## Development
 
-Requires Go 1.24+ and `git` on `PATH`.
+Requires Go 1.21+ and `git` on `PATH`.
 
 ```console
 go build ./...

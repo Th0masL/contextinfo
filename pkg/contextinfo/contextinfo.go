@@ -24,20 +24,27 @@ type Info struct {
 	GitCommitSHAShort string `json:"git_commit_sha_short"` // first 7 chars of git_commit_sha
 	GitTag            string `json:"git_tag"`              // tag pointing at HEAD ("" if none)
 	GitDirty          bool   `json:"git_dirty"`            // working tree has uncommitted changes
-	GitChecksum       string `json:"git_checksum"`         // SHA-256 of non-ignored working-dir files ("" if disabled)
+	FilesChecksum     string `json:"files_checksum"`       // SHA-256 of non-ignored working-dir files ("" if disabled)
 	GitRepoURL        string `json:"git_repo_url"`         // HTTPS web URL of the repository
 	GitRepository     string `json:"git_repository"`       // "owner/repo" slug
 	Actor             string `json:"actor"`                // CI user that triggered the run, else local OS user
-	Event             string `json:"event"`                // CI event/source (push, release, ...), else "manual"
+	Event             string `json:"event"`                // normalized trigger: push, tag, pull_request, release, schedule, or manual
 
 	// CI/CD platform (empty when not running in CI).
-	CIPlatform    string `json:"ci_platform"`     // "github-actions", "gitlab-ci", "unknown", or "" locally
+	CIPlatform    string `json:"ci_platform"`     // "github-actions", "gitlab-ci", "circleci", "unknown", or "" locally
 	CIBuildURL    string `json:"ci_build_url"`    // URL of the current build/pipeline
 	CIBuildNumber string `json:"ci_build_number"` // build/pipeline number
 	CIWorkflow    string `json:"ci_workflow"`     // workflow or job name
 
 	// Host runtime.
 	RuntimeHostname string `json:"runtime_hostname"` // os.Hostname()
+
+	// explained always maps each field to a note of where its value came from,
+	// captured during detection. explain (set by WithExplain) gates whether
+	// flatten emits them as "<field>_explained" companions. Both are unexported
+	// (not part of the JSON struct shape).
+	explained map[string]string
+	explain   bool
 }
 
 // Option configures Detect.
@@ -45,19 +52,38 @@ type Option func(*options)
 
 // options holds the resolved configuration for a Detect call (see Option).
 type options struct {
+	dir      string
 	checksum bool
+	explain  bool
 }
 
-// WithoutChecksum disables computing git_checksum. By default Detect computes it,
+// WithoutFilesChecksum disables computing files_checksum. By default Detect computes it,
 // which reads every non-ignored file in the working directory; disable it when
 // detection must stay cheap on a very large tree.
-func WithoutChecksum() Option {
+func WithoutFilesChecksum() Option {
 	return func(o *options) { o.checksum = false }
 }
 
-// Detect gathers context from the current process and working directory. It
-// never fails; unavailable values are left empty. By default it computes
-// git_checksum; pass WithoutChecksum to skip that work.
+// WithDir sets the directory to inspect. The default (empty) is the process's
+// current working directory. Git runs in this directory and detection holds no
+// global state, so Detect may be called concurrently for different directories.
+func WithDir(dir string) Option {
+	return func(o *options) { o.dir = dir }
+}
+
+// WithExplain makes Detect also record, for each field, where its value came
+// from. The notes surface as "<field>_explained" companions in the rendered
+// output (EnvVars/FlatJSON/TFVarsHCL/Text), carrying the source text
+// (variable and command names), never raw env values.
+func WithExplain() Option {
+	return func(o *options) { o.explain = true }
+}
+
+// Detect gathers context from the process environment and a working directory
+// (the current directory by default; override with WithDir). It never fails;
+// unavailable values are left empty. By default it computes files_checksum — pass
+// WithoutFilesChecksum to skip that work. Detect keeps no global state and is safe
+// to call concurrently for different directories.
 func Detect(opts ...Option) Info {
 	o := options{checksum: true}
 	for _, opt := range opts {
@@ -70,21 +96,22 @@ func Detect(opts ...Option) Info {
 // (os.Getenv in production, a fixture map in tests), while git and host state
 // come from the current working directory and machine.
 func detect(getenv func(string) string, o options) Info {
-	ci := detectCI(getenv)
+	ci, ciSrc := detectCI(getenv)
 
-	sha := gitOutput("rev-parse", "HEAD")
+	sha := gitOutput(o.dir, "rev-parse", "HEAD")
 	short := sha
 	if len(short) > 7 {
 		short = short[:7]
 	}
-	remote := gitRemoteURL()
+	branch, branchSrc := gitBranch(o.dir, ci.branchHint, ciSrc["git_branch"])
+	remote := gitRemoteURL(o.dir)
 
 	info := Info{
-		GitBranch:         gitBranch(ci.branchHint),
+		GitBranch:         branch,
 		GitCommitSHA:      sha,
 		GitCommitSHAShort: short,
-		GitTag:            gitOutput("describe", "--tags", "--exact-match"),
-		GitDirty:          gitDirty(),
+		GitTag:            gitOutput(o.dir, "describe", "--tags", "--exact-match"),
+		GitDirty:          gitDirty(o.dir),
 		GitRepoURL:        firstNonEmpty(ci.repoURL, httpsRepoURL(remote)),
 		GitRepository:     firstNonEmpty(ci.repository, repoSlug(remote)),
 		Actor:             firstNonEmpty(ci.actor, osUser()),
@@ -96,7 +123,11 @@ func detect(getenv func(string) string, o options) Info {
 		RuntimeHostname:   hostname(),
 	}
 	if o.checksum {
-		info.GitChecksum = gitChecksum()
+		info.FilesChecksum = filesChecksum(o.dir)
 	}
+	// Provenance is captured in one pass from the values/sources already computed
+	// (no re-derivation); explain only gates whether flatten emits it.
+	info.explained = buildExplained(ci, ciSrc, info, branchSrc, o.checksum)
+	info.explain = o.explain
 	return info
 }

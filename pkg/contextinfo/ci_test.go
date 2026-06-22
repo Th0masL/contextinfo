@@ -9,14 +9,14 @@ func getter(m map[string]string) func(string) string {
 
 // With no CI markers set, detection reports a local (empty-platform) run.
 func TestDetectCILocal(t *testing.T) {
-	if d := detectCI(getter(nil)); d.platform != "" {
+	if d, _ := detectCI(getter(nil)); d.platform != "" {
 		t.Errorf("local: platform = %q, want empty", d.platform)
 	}
 }
 
 // A bare CI=true from an unrecognized platform is reported as "unknown".
 func TestDetectCIGenericUnknown(t *testing.T) {
-	if d := detectCI(getter(map[string]string{"CI": "true"})); d.platform != "unknown" {
+	if d, _ := detectCI(getter(map[string]string{"CI": "true"})); d.platform != "unknown" {
 		t.Errorf("platform = %q, want unknown", d.platform)
 	}
 }
@@ -24,7 +24,7 @@ func TestDetectCIGenericUnknown(t *testing.T) {
 // When both a known platform marker and the generic CI marker are set, the
 // specific platform must win over the "unknown" fallback.
 func TestDetectCIPrecedenceGitHubBeforeGeneric(t *testing.T) {
-	d := detectCI(getter(map[string]string{"CI": "true", "GITHUB_ACTIONS": "true"}))
+	d, _ := detectCI(getter(map[string]string{"CI": "true", "GITHUB_ACTIONS": "true"}))
 	if d.platform != "github-actions" {
 		t.Errorf("platform = %q, want github-actions (specific platform must win)", d.platform)
 	}
@@ -32,7 +32,7 @@ func TestDetectCIPrecedenceGitHubBeforeGeneric(t *testing.T) {
 
 // A full GitHub Actions environment maps to every ciData field.
 func TestGitHubData(t *testing.T) {
-	d := detectCI(getter(map[string]string{
+	d, _ := detectCI(getter(map[string]string{
 		"GITHUB_ACTIONS":    "true",
 		"GITHUB_SERVER_URL": "https://github.com",
 		"GITHUB_REPOSITORY": "org/repo",
@@ -60,14 +60,18 @@ func TestGitHubData(t *testing.T) {
 	}
 }
 
-// A tag/release build must not produce a branch hint.
+// A tag push (event_name=push + ref_type=tag) normalizes event to "tag" and has
+// no branch hint (GITHUB_REF_NAME holds the tag, not a branch).
 func TestGitHubDataTagEventHasNoBranchHint(t *testing.T) {
-	// On a tag/release event GITHUB_REF_NAME holds the tag, not a branch.
-	d := detectCI(getter(map[string]string{
-		"GITHUB_ACTIONS":  "true",
-		"GITHUB_REF_TYPE": "tag",
-		"GITHUB_REF_NAME": "v1.2.3",
+	d, _ := detectCI(getter(map[string]string{
+		"GITHUB_ACTIONS":    "true",
+		"GITHUB_EVENT_NAME": "push",
+		"GITHUB_REF_TYPE":   "tag",
+		"GITHUB_REF_NAME":   "v1.2.3",
 	}))
+	if d.event != "tag" {
+		t.Errorf("event = %q, want tag", d.event)
+	}
 	if d.branchHint != "" {
 		t.Errorf("tag event: branchHint = %q, want empty", d.branchHint)
 	}
@@ -76,7 +80,7 @@ func TestGitHubDataTagEventHasNoBranchHint(t *testing.T) {
 // A pull-request build's branch hint is the source branch, not the merge ref.
 func TestGitHubDataPullRequestUsesHeadRef(t *testing.T) {
 	// In a PR run GITHUB_REF_NAME is the merge ref; the source branch is HEAD_REF.
-	d := detectCI(getter(map[string]string{
+	d, _ := detectCI(getter(map[string]string{
 		"GITHUB_ACTIONS":  "true",
 		"GITHUB_HEAD_REF": "feature/x",
 		"GITHUB_REF_TYPE": "branch",
@@ -89,7 +93,7 @@ func TestGitHubDataPullRequestUsesHeadRef(t *testing.T) {
 
 // A full GitLab CI environment maps to every ciData field.
 func TestGitLabData(t *testing.T) {
-	d := detectCI(getter(map[string]string{
+	d, _ := detectCI(getter(map[string]string{
 		"GITLAB_CI":          "true",
 		"GITLAB_USER_LOGIN":  "tux",
 		"CI_PIPELINE_SOURCE": "push",
@@ -118,7 +122,7 @@ func TestGitLabData(t *testing.T) {
 
 // A full CircleCI branch build maps to every ciData field (event derived "push").
 func TestCircleCIData(t *testing.T) {
-	d := detectCI(getter(map[string]string{
+	d, _ := detectCI(getter(map[string]string{
 		"CI":                      "true", // CircleCI sets both; CIRCLECI must win
 		"CIRCLECI":                "true",
 		"CIRCLE_USERNAME":         "octocat",
@@ -150,7 +154,7 @@ func TestCircleCIData(t *testing.T) {
 func TestCircleCIDataTagBuild(t *testing.T) {
 	// On a tag build CIRCLE_TAG is set and CIRCLE_BRANCH is empty; event is
 	// derived as "tag" and the branch hint must stay empty.
-	d := detectCI(getter(map[string]string{
+	d, _ := detectCI(getter(map[string]string{
 		"CIRCLECI":   "true",
 		"CIRCLE_TAG": "v1.0.2",
 	}))
@@ -162,14 +166,30 @@ func TestCircleCIDataTagBuild(t *testing.T) {
 	}
 }
 
-// A GitLab tag pipeline leaves CI_COMMIT_BRANCH unset, so no branch hint.
+// A CircleCI PR build sets CIRCLE_PULL_REQUEST; event normalizes to "pull_request".
+func TestCircleCIDataPullRequest(t *testing.T) {
+	d, _ := detectCI(getter(map[string]string{
+		"CIRCLECI":            "true",
+		"CIRCLE_BRANCH":       "feature/x",
+		"CIRCLE_PULL_REQUEST": "https://github.com/acme/widgets/pull/7",
+	}))
+	if d.event != "pull_request" {
+		t.Errorf("event = %q, want pull_request", d.event)
+	}
+}
+
+// A GitLab tag pipeline is source=push with CI_COMMIT_TAG set and
+// CI_COMMIT_BRANCH unset: event normalizes to "tag" and there is no branch hint.
 func TestGitLabDataTagPipelineHasNoBranchHint(t *testing.T) {
-	// CI_COMMIT_BRANCH is unset on tag pipelines (only CI_COMMIT_TAG/REF_NAME).
-	d := detectCI(getter(map[string]string{
+	d, _ := detectCI(getter(map[string]string{
 		"GITLAB_CI":          "true",
+		"CI_PIPELINE_SOURCE": "push",
 		"CI_COMMIT_TAG":      "v1.2.3",
 		"CI_COMMIT_REF_NAME": "v1.2.3",
 	}))
+	if d.event != "tag" {
+		t.Errorf("event = %q, want tag", d.event)
+	}
 	if d.branchHint != "" {
 		t.Errorf("tag pipeline: branchHint = %q, want empty", d.branchHint)
 	}

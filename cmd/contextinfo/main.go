@@ -1,9 +1,8 @@
 // Command contextinfo detects the run context (git, repository, CI, runtime) and
-// prints it in a choice of formats (envvar, json, text, tfvars, tfvars-json).
+// prints it in a choice of formats (envvar, json, text, tfvars).
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -17,9 +16,11 @@ var version = "dev"
 
 // main parses flags, runs detection, and prints the result in the chosen format.
 func main() {
-	format := flag.String("format", "envvar", "output format: envvar, json, text, tfvars, or tfvars-json")
-	prefix := flag.String("prefix", "", "prefix for variable names (applies to envvar, tfvars, tfvars-json)")
-	noChecksum := flag.Bool("no-checksum", false, "skip git_checksum (avoids reading every non-ignored file)")
+	format := flag.String("format", "envvar", "output format: envvar, json, text, or tfvars")
+	prefix := flag.String("prefix", "", "prefix for variable names (applies to envvar, json, tfvars)")
+	dir := flag.String("dir", "", "directory to inspect (default: current directory)")
+	noFilesChecksum := flag.Bool("no-files-checksum", false, "skip files_checksum (avoids reading every non-ignored file)")
+	explain := flag.Bool("explain", false, "also emit <name>_explained companions noting each value's source")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -30,8 +31,14 @@ func main() {
 	}
 
 	var opts []contextinfo.Option
-	if *noChecksum {
-		opts = append(opts, contextinfo.WithoutChecksum())
+	if *dir != "" {
+		opts = append(opts, contextinfo.WithDir(*dir))
+	}
+	if *noFilesChecksum {
+		opts = append(opts, contextinfo.WithoutFilesChecksum())
+	}
+	if *explain {
+		opts = append(opts, contextinfo.WithExplain())
 	}
 	info := contextinfo.Detect(opts...)
 
@@ -39,18 +46,14 @@ func main() {
 	case "envvar":
 		fmt.Print(info.EnvVars(*prefix))
 	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(info)
+		b, err := info.FlatJSON(*prefix)
+		emit(b, err)
 	case "text":
-		printText(info)
+		fmt.Print(info.Text())
 	case "tfvars":
 		fmt.Print(info.TFVarsHCL(*prefix))
-	case "tfvars-json":
-		b, err := info.TFVarsJSON(*prefix)
-		emit(b, err)
 	default:
-		fmt.Fprintf(os.Stderr, "contextinfo: unknown format %q (want envvar, json, text, tfvars, or tfvars-json)\n", *format)
+		fmt.Fprintf(os.Stderr, "contextinfo: unknown format %q (want envvar, json, text, or tfvars)\n", *format)
 		os.Exit(2)
 	}
 }
@@ -63,14 +66,14 @@ func usage() {
 	fmt.Fprintf(out, "Usage:\n  %s [flags]\n\nFlags:\n", name)
 	flag.PrintDefaults()
 	fmt.Fprintf(out, "\nFormats:\n")
-	fmt.Fprintf(out, "  envvar       shell NAME=value lines (default)\n")
-	fmt.Fprintf(out, "  json         flat JSON object\n")
-	fmt.Fprintf(out, "  text         aligned key/value text\n")
-	fmt.Fprintf(out, "  tfvars       Terraform variables (HCL)\n")
-	fmt.Fprintf(out, "  tfvars-json  Terraform variables (JSON)\n")
+	fmt.Fprintf(out, "  envvar  shell NAME=value lines (default)\n")
+	fmt.Fprintf(out, "  json    flat JSON object\n")
+	fmt.Fprintf(out, "  text    aligned key/value text\n")
+	fmt.Fprintf(out, "  tfvars  Terraform variables (HCL)\n")
 	fmt.Fprintf(out, "\nExamples:\n")
 	fmt.Fprintf(out, "  %s                                    # envvar lines\n", name)
 	fmt.Fprintf(out, "  %s --format=json                      # flat JSON\n", name)
+	fmt.Fprintf(out, "  %s --explain                          # add <name>_explained source notes\n", name)
 	fmt.Fprintf(out, "  %s --format=tfvars > ctx.auto.tfvars  # Terraform vars file\n", name)
 	fmt.Fprintf(out, "  set -a; eval \"$(%s --format=envvar --prefix TF_VAR_)\"; set +a   # export TF_VAR_* for terraform\n", name)
 }
@@ -82,28 +85,4 @@ func emit(b []byte, err error) {
 		os.Exit(1)
 	}
 	os.Stdout.Write(b)
-}
-
-// printText prints the context as aligned "key value" lines, one field per row.
-func printText(info contextinfo.Info) {
-	rows := [][2]string{
-		{"git_branch", info.GitBranch},
-		{"git_commit_sha", info.GitCommitSHA},
-		{"git_commit_sha_short", info.GitCommitSHAShort},
-		{"git_tag", info.GitTag},
-		{"git_dirty", fmt.Sprintf("%t", info.GitDirty)},
-		{"git_checksum", info.GitChecksum},
-		{"git_repo_url", info.GitRepoURL},
-		{"git_repository", info.GitRepository},
-		{"actor", info.Actor},
-		{"event", info.Event},
-		{"ci_platform", info.CIPlatform},
-		{"ci_build_url", info.CIBuildURL},
-		{"ci_build_number", info.CIBuildNumber},
-		{"ci_workflow", info.CIWorkflow},
-		{"runtime_hostname", info.RuntimeHostname},
-	}
-	for _, r := range rows {
-		fmt.Printf("%-20s %s\n", r[0], r[1])
-	}
 }

@@ -19,7 +19,11 @@ type ciData struct {
 // verified against real output are recognized by name — GitHub Actions, GitLab
 // CI, and CircleCI. A bare CI=true marker yields platform "unknown"; otherwise an
 // empty ciData is returned, indicating a local (non-CI) run.
-func detectCI(getenv func(string) string) ciData {
+//
+// It also returns a per-field map of source labels (keyed by Info field name)
+// describing which env var(s) each value came from, so --explain can report the
+// provenance without re-deriving it.
+func detectCI(getenv func(string) string) (ciData, map[string]string) {
 	switch {
 	case getenv("GITHUB_ACTIONS") == "true":
 		return githubData(getenv)
@@ -28,9 +32,9 @@ func detectCI(getenv func(string) string) ciData {
 	case getenv("CIRCLECI") == "true":
 		return circleCIData(getenv)
 	case getenv("CI") == "true":
-		return ciData{platform: "unknown"}
+		return ciData{platform: "unknown"}, map[string]string{"ci_platform": "CI=true"}
 	default:
-		return ciData{}
+		return ciData{}, nil
 	}
 }
 

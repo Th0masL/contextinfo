@@ -9,7 +9,7 @@
 # contextinfo is used (deploy-time, not on MRs).
 
 printenv:
-  image: golang:1.24
+  image: golang:1.21
   script:
     - echo "CI_PIPELINE_SOURCE = $CI_PIPELINE_SOURCE" # what triggered this run
     - printenv | sort | grep -E '^(GIT|CI)' | grep -viE 'token|secret|password' || true

@@ -13,15 +13,18 @@ type flatPair struct {
 }
 
 // flatten returns the context as ordered key/value pairs (matching the Info
-// field order), each key prefixed with prefix (use "" for none).
+// field order), each key prefixed with prefix (use "" for none). When the Info
+// was detected WithExplain, each field is followed by a "<key>_explained" pair
+// carrying the source note (provenance is always captured; this only gates
+// whether it is emitted).
 func (i Info) flatten(prefix string) []flatPair {
-	return []flatPair{
+	base := []flatPair{
 		{prefix + "git_branch", i.GitBranch},
 		{prefix + "git_commit_sha", i.GitCommitSHA},
 		{prefix + "git_commit_sha_short", i.GitCommitSHAShort},
 		{prefix + "git_tag", i.GitTag},
 		{prefix + "git_dirty", i.GitDirty},
-		{prefix + "git_checksum", i.GitChecksum},
+		{prefix + "files_checksum", i.FilesChecksum},
 		{prefix + "git_repo_url", i.GitRepoURL},
 		{prefix + "git_repository", i.GitRepository},
 		{prefix + "actor", i.Actor},
@@ -32,10 +35,19 @@ func (i Info) flatten(prefix string) []flatPair {
 		{prefix + "ci_workflow", i.CIWorkflow},
 		{prefix + "runtime_hostname", i.RuntimeHostname},
 	}
+	if !i.explain {
+		return base
+	}
+	out := make([]flatPair, 0, len(base)*2)
+	for _, p := range base {
+		field := strings.TrimPrefix(p.key, prefix)
+		out = append(out, p, flatPair{p.key + "_explained", i.explained[field]})
+	}
+	return out
 }
 
-// FlatJSON renders the context as a flat JSON object: nested paths joined with
-// "_" (e.g. "git_commit"), value types preserved (bools stay bool), keys in a
+// FlatJSON renders the context as a flat JSON object keyed by the Info json tags
+// (e.g. "git_commit_sha"), value types preserved (bools stay bool), keys in a
 // stable order, each prefixed with prefix (use "" for none).
 func (i Info) FlatJSON(prefix string) ([]byte, error) {
 	pairs := i.flatten(prefix)
@@ -58,12 +70,6 @@ func (i Info) FlatJSON(prefix string) ([]byte, error) {
 	}
 	b.WriteString("}\n")
 	return []byte(b.String()), nil
-}
-
-// TFVarsJSON renders flat Terraform variables as a .tfvars.json document. It is
-// equivalent to FlatJSON — a flat, prefixed JSON object.
-func (i Info) TFVarsJSON(prefix string) ([]byte, error) {
-	return i.FlatJSON(prefix)
 }
 
 // TFVarsHCL renders flat Terraform variables as a .tfvars (HCL) document. String
@@ -100,6 +106,23 @@ func (i Info) EnvVars(prefix string) string {
 			continue
 		}
 		fmt.Fprintf(&b, "%s=%s\n", p.key, shellSingleQuote(fmt.Sprint(p.val)))
+	}
+	return b.String()
+}
+
+// Text renders the context as aligned "key  value" lines, one field per line
+// (including any "<key>_explained" companions when detected WithExplain).
+func (i Info) Text() string {
+	pairs := i.flatten("")
+	width := 0
+	for _, p := range pairs {
+		if len(p.key) > width {
+			width = len(p.key)
+		}
+	}
+	var b strings.Builder
+	for _, p := range pairs {
+		fmt.Fprintf(&b, "%-*s  %s\n", width, p.key, fmt.Sprint(p.val))
 	}
 	return b.String()
 }

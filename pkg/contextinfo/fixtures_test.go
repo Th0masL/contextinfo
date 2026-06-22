@@ -48,14 +48,22 @@ func TestGoldenFixtures(t *testing.T) {
 	cases := map[string]want{
 		"github_push_main.txt":                          {"github-actions", "push", "main"},
 		"github_push_development.txt":                   {"github-actions", "push", "development"},
-		"github_tag-created-during-release_v1.0.0.txt":  {"github-actions", "push", ""},
+		"github_tag-created-during-release_v1.0.0.txt":  {"github-actions", "tag", ""},
 		"github_release_v1.0.0.txt":                     {"github-actions", "release", ""},
 		"gitlab_push_main.txt":                          {"gitlab-ci", "push", "main"},
 		"gitlab_push_development.txt":                   {"gitlab-ci", "push", "development"},
-		"gitlab_release_v1.0.0.txt":                     {"gitlab-ci", "push", ""},
-		"gitlab_tag-created-without-release_v1.0.1.txt": {"gitlab-ci", "push", ""},
+		"gitlab_release_v1.0.0.txt":                     {"gitlab-ci", "tag", ""},
+		"gitlab_tag-created-without-release_v1.0.1.txt": {"gitlab-ci", "tag", ""},
 		"circleci_push_main.txt":                        {"circleci", "push", "main"},
 		"circleci_release-on-github_v1.0.2.txt":         {"circleci", "tag", ""},
+		"github_schedule_on-main-branch.txt":            {"github-actions", "schedule", "main"},
+		"gitlab_schedule_on-main-branch.txt":            {"gitlab-ci", "schedule", "main"},
+		// The "merge-pr" captures are the post-merge PUSH to main (the printenv jobs
+		// don't run on pull_request / merge_request pipelines), so the event is
+		// "push", not "pull_request" — they don't add pull_request coverage.
+		"github_merge-pr_to-main-branch.txt":                         {"github-actions", "push", "main"},
+		"gitlab_merge-pr_to-main-branch.txt":                         {"gitlab-ci", "push", "main"},
+		"circleci_merge-pr-triggered-from-github_to-main-branch.txt": {"circleci", "push", "main"},
 	}
 
 	dir := filepath.Join("testdata", "env")
@@ -77,7 +85,7 @@ func TestGoldenFixtures(t *testing.T) {
 		}
 		seen[name] = true
 		t.Run(name, func(t *testing.T) {
-			d := detectCI(loadEnvFixture(t, path))
+			d, _ := detectCI(loadEnvFixture(t, path))
 			if d.platform != w.platform {
 				t.Errorf("platform = %q, want %q", d.platform, w.platform)
 			}

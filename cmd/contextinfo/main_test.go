@@ -117,6 +117,16 @@ func TestCLIJSON(t *testing.T) {
 			t.Errorf("JSON should be flat, found nested %q key\n%s", nested, out)
 		}
 	}
+
+	// json honors --prefix (this replaced the separate tfvars-json format).
+	pout, _ := runCLI(t, bin, "--format=json", "--prefix", "TF_VAR_")
+	var pm map[string]any
+	if err := json.Unmarshal([]byte(pout), &pm); err != nil {
+		t.Fatalf("prefixed json not valid: %v\n%s", err, pout)
+	}
+	if _, ok := pm["TF_VAR_git_branch"]; !ok {
+		t.Errorf("json --prefix not applied; want TF_VAR_git_branch\n%s", pout)
+	}
 }
 
 // --help prints usage with the flags, format list, and examples.
@@ -148,11 +158,9 @@ func TestCLIText(t *testing.T) {
 	}
 }
 
-// tfvars / tfvars-json emit Terraform variables (HCL and JSON respectively).
+// tfvars emits Terraform variables in HCL.
 func TestCLITFVars(t *testing.T) {
 	bin := buildCLI(t)
-
-	// Default: no prefix.
 	hcl, code := runCLI(t, bin, "--format=tfvars")
 	if code != 0 {
 		t.Fatalf("tfvars: exit = %d, want 0", code)
@@ -162,18 +170,6 @@ func TestCLITFVars(t *testing.T) {
 	}
 	if strings.Contains(hcl, "contextinfo_") {
 		t.Errorf("tfvars should have no prefix by default\n%s", hcl)
-	}
-
-	js, code := runCLI(t, bin, "--format=tfvars-json")
-	if code != 0 {
-		t.Fatalf("tfvars-json: exit = %d, want 0", code)
-	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(js), &m); err != nil {
-		t.Fatalf("tfvars-json is not valid JSON: %v\n%s", err, js)
-	}
-	if _, ok := m["runtime_hostname"]; !ok {
-		t.Errorf("tfvars-json missing runtime_hostname\n%s", js)
 	}
 }
 
@@ -189,11 +185,11 @@ func TestCLIPrefix(t *testing.T) {
 	}
 }
 
-// git_checksum is populated by default and suppressed by --no-checksum.
+// files_checksum is populated by default and suppressed by --no-files-checksum.
 func TestCLIChecksumDefaultAndDisable(t *testing.T) {
 	bin := buildCLI(t)
 
-	// Default: git_checksum is computed (the test runs inside this git repo).
+	// Default: files_checksum is computed (the test runs inside this git repo).
 	out, code := runCLI(t, bin, "--format=json")
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
@@ -202,21 +198,75 @@ func TestCLIChecksumDefaultAndDisable(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &m); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, out)
 	}
-	if s, _ := m["git_checksum"].(string); s == "" {
-		t.Errorf("git_checksum should be populated by default\n%s", out)
+	if s, _ := m["files_checksum"].(string); s == "" {
+		t.Errorf("files_checksum should be populated by default\n%s", out)
 	}
 
-	// --no-checksum leaves it empty.
-	out2, code := runCLI(t, bin, "--no-checksum", "--format=json")
+	// --no-files-checksum leaves it empty.
+	out2, code := runCLI(t, bin, "--no-files-checksum", "--format=json")
 	if code != 0 {
-		t.Fatalf("--no-checksum exit = %d, want 0", code)
+		t.Fatalf("--no-files-checksum exit = %d, want 0", code)
 	}
 	var m2 map[string]any
 	if err := json.Unmarshal([]byte(out2), &m2); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, out2)
 	}
-	if s, _ := m2["git_checksum"].(string); s != "" {
-		t.Errorf("git_checksum should be empty with --no-checksum, got %q", s)
+	if s, _ := m2["files_checksum"].(string); s != "" {
+		t.Errorf("files_checksum should be empty with --no-files-checksum, got %q", s)
+	}
+}
+
+// printText's hand-maintained rows must cover every field; this fails if the
+// text format drifts from the struct (compared against the json keys) when a
+// field is added.
+func TestCLITextHasEveryField(t *testing.T) {
+	bin := buildCLI(t)
+	jsonOut, code := runCLI(t, bin, "--format=json")
+	if code != 0 {
+		t.Fatalf("json exit = %d", code)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &m); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	textOut, _ := runCLI(t, bin, "--format=text")
+	for key := range m {
+		if !strings.Contains(textOut, key) {
+			t.Errorf("text output missing field %q (printText drifted from the struct)\n%s", key, textOut)
+		}
+	}
+}
+
+// --explain adds a <field>_explained companion to each field, in every format.
+func TestCLIExplain(t *testing.T) {
+	bin := buildCLI(t)
+
+	// envvar (default): both the field and its _explained companion appear.
+	out, code := runCLI(t, bin, "--explain")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(out, "git_commit_sha=") || !strings.Contains(out, "git_commit_sha_explained=") {
+		t.Errorf("envvar --explain missing field or companion:\n%s", out)
+	}
+
+	// json carries the companion too.
+	jout, code := runCLI(t, bin, "--explain", "--format=json")
+	if code != 0 {
+		t.Fatalf("json exit = %d, want 0", code)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(jout), &m); err != nil {
+		t.Fatalf("not valid JSON: %v\n%s", err, jout)
+	}
+	if _, ok := m["git_commit_sha_explained"]; !ok {
+		t.Errorf("json --explain missing git_commit_sha_explained\n%s", jout)
+	}
+
+	// Without --explain, no companions are emitted.
+	plain, _ := runCLI(t, bin)
+	if strings.Contains(plain, "_explained") {
+		t.Errorf("companions leaked without --explain:\n%s", plain)
 	}
 }
 

@@ -2,21 +2,22 @@ package contextinfo
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // The checksum is deterministic for an unchanged tree and moves whenever a
 // tracked file is edited or a new non-ignored file appears.
-func TestGitChecksumStableAndSensitive(t *testing.T) {
+func TestFilesChecksumStableAndSensitive(t *testing.T) {
 	dir := newRepo(t)
-	t.Chdir(dir)
 
-	sum1 := gitChecksum()
+	sum1 := filesChecksum(dir)
 	if sum1 == "" {
 		t.Fatal("empty checksum in a repo")
 	}
-	if gitChecksum() != sum1 {
+	if filesChecksum(dir) != sum1 {
 		t.Error("checksum is not stable across runs with no change")
 	}
 
@@ -24,7 +25,7 @@ func TestGitChecksumStableAndSensitive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sum2 := gitChecksum()
+	sum2 := filesChecksum(dir)
 	if sum2 == sum1 {
 		t.Error("checksum unchanged after editing a tracked file")
 	}
@@ -33,31 +34,30 @@ func TestGitChecksumStableAndSensitive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if gitChecksum() == sum2 {
+	if filesChecksum(dir) == sum2 {
 		t.Error("checksum unchanged after adding an untracked file")
 	}
 }
 
 // Files excluded by .gitignore must not affect the checksum.
-func TestGitChecksumIgnoresGitignored(t *testing.T) {
+func TestFilesChecksumIgnoresGitignored(t *testing.T) {
 	dir := newRepo(t)
-	t.Chdir(dir)
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	base := gitChecksum() // .gitignore itself is a non-ignored file -> counted once
+	base := filesChecksum(dir) // .gitignore itself is a non-ignored file -> counted once
 
 	if err := os.WriteFile(filepath.Join(dir, "ignored.txt"), []byte("secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if gitChecksum() != base {
+	if filesChecksum(dir) != base {
 		t.Error("checksum changed after adding a git-ignored file")
 	}
 }
 
 // A symlink contributes its target's content, so editing the linked file moves
 // the checksum — the case Terraform stacks rely on when symlinking shared files.
-func TestGitChecksumFollowsSymlinkTarget(t *testing.T) {
+func TestFilesChecksumFollowsSymlinkTarget(t *testing.T) {
 	dir := newRepo(t)
 	// A shared file outside the repo working tree (e.g. a Terraform module
 	// symlinked into a stack from a parent folder).
@@ -69,9 +69,8 @@ func TestGitChecksumFollowsSymlinkTarget(t *testing.T) {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
 	runGit(t, dir, "add", "shared.tf")
-	t.Chdir(dir)
 
-	sum1 := gitChecksum()
+	sum1 := filesChecksum(dir)
 	if sum1 == "" {
 		t.Fatal("empty checksum")
 	}
@@ -79,28 +78,65 @@ func TestGitChecksumFollowsSymlinkTarget(t *testing.T) {
 	if err := os.WriteFile(shared, []byte("v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if gitChecksum() == sum1 {
+	if filesChecksum(dir) == sum1 {
 		t.Error("checksum did not change when the symlink target content changed")
 	}
 }
 
-// A dangling symlink must be tolerated (placeholder), not error or blank the sum.
-func TestGitChecksumBrokenSymlinkSafe(t *testing.T) {
+// A dangling symlink must be tolerated (skipped, like sha256sum), not error.
+func TestFilesChecksumBrokenSymlinkSafe(t *testing.T) {
 	dir := newRepo(t)
 	if err := os.Symlink(filepath.Join(dir, "does-not-exist"), filepath.Join(dir, "dangling")); err != nil {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
 	runGit(t, dir, "add", "dangling")
-	t.Chdir(dir)
-	if gitChecksum() == "" {
+	if filesChecksum(dir) == "" {
 		t.Error("a broken symlink should not blank the checksum")
 	}
 }
 
 // Outside a git repository the checksum is empty (it has no file list to hash).
-func TestGitChecksumOutsideRepo(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if s := gitChecksum(); s != "" {
+func TestFilesChecksumOutsideRepo(t *testing.T) {
+	if s := filesChecksum(t.TempDir()); s != "" {
 		t.Errorf("checksum outside a repo = %q, want empty", s)
+	}
+}
+
+// filesChecksum(dir) must equal the documented shell pipeline run in dir,
+// byte-for-byte. This is the contract: anyone can reproduce files_checksum with
+// the one-liner. Skipped where the GNU tools it uses aren't available.
+func TestFilesChecksumMatchesShellPipeline(t *testing.T) {
+	for _, bin := range []string{"bash", "sha256sum"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available", bin)
+		}
+	}
+	dir := newRepo(t)
+	// Extra files to exercise sorting (untracked, out of order) and symlink-follow.
+	if err := os.WriteFile(filepath.Join(dir, "z.txt"), []byte("zzz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("aaa\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "shared.tf")
+	if err := os.WriteFile(target, []byte("shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "link.tf")); err == nil {
+		runGit(t, dir, "add", "link.tf")
+	}
+
+	const pipeline = `git ls-files -z --cached --others --exclude-standard | ` +
+		`LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}'`
+	cmd := exec.Command("bash", "-c", pipeline)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Skipf("shell pipeline failed (missing tool such as sort -z / xargs -0?): %v", err)
+	}
+	want := strings.TrimSpace(string(out))
+	if got := filesChecksum(dir); got != want {
+		t.Errorf("filesChecksum(dir) = %q\nshell pipeline       = %q", got, want)
 	}
 }
