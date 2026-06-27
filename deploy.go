@@ -44,6 +44,10 @@ func fieldValue(i Info, name string) (string, bool) {
 		return i.GitCommitSHA, true
 	case "commit_sha_short", "git_commit_sha_short":
 		return i.GitCommitSHAShort, true
+	case "commit_subject", "git_commit_subject":
+		return i.GitCommitSubject, true
+	case "is_merge", "git_is_merge":
+		return strconv.FormatBool(i.GitIsMerge), true
 	case "tag", "git_tag":
 		return i.GitTag, true
 	case "dirty", "git_dirty":

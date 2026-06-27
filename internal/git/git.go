@@ -31,6 +31,19 @@ func InRepo(ctx context.Context, dir string) bool {
 	return Output(ctx, dir, "rev-parse", "--is-inside-work-tree") == "true"
 }
 
+// Commit returns HEAD's full SHA, its parent count, and its subject line — in a
+// single call (NUL-separated so the subject can't be confused with the rest). A
+// parent count >= 2 means HEAD is a merge commit. All-zero/empty when HEAD is
+// unborn (empty repo) or not a repository.
+func Commit(ctx context.Context, dir string) (sha string, parents int, subject string) {
+	out := Output(ctx, dir, "log", "-1", "--format=%H%x00%P%x00%s")
+	f := strings.SplitN(out, "\x00", 3)
+	if len(f) < 3 {
+		return "", 0, ""
+	}
+	return f[0], len(strings.Fields(f[1])), f[2]
+}
+
 // Branch returns the current branch of the repo in dir and a note of where it
 // came from. On a branch, symbolic-ref is authoritative; in CI's detached-HEAD
 // checkout it falls back to the CI branch hint (never a tag name — see the

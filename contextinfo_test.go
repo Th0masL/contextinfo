@@ -38,6 +38,12 @@ func TestDetectLocal(t *testing.T) {
 	if info.GitCommitSHAShort != info.GitCommitSHA[:7] {
 		t.Errorf("git_commit_sha_short = %q, want %q", info.GitCommitSHAShort, info.GitCommitSHA[:7])
 	}
+	if info.GitCommitSubject != "init" {
+		t.Errorf("git_commit_subject = %q, want init", info.GitCommitSubject)
+	}
+	if info.GitIsMerge {
+		t.Error("git_is_merge should be false for a non-merge commit")
+	}
 	if info.GitRepository != "acme/widgets" {
 		t.Errorf("git_repository = %q, want acme/widgets (from remote)", info.GitRepository)
 	}

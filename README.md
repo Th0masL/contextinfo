@@ -44,6 +44,8 @@ available source — git/OS locally, with CI taking precedence where noted.
 | `git_branch` | current branch (`""` on a tag/detached checkout) | git; CI hint when detached |
 | `git_commit_sha` | full HEAD commit SHA | git |
 | `git_commit_sha_short` | first 7 chars of `git_commit_sha` | git |
+| `git_commit_subject` | HEAD commit subject (first line); user-editable, a hint | git |
+| `git_is_merge` | HEAD is a merge commit (2+ parents); structural, reliable | git |
 | `git_tag` | tag pointing at HEAD (`""` if none) | git |
 | `git_dirty` | working tree has uncommitted changes | git |
 | `files_checksum` | SHA-256 of the non-ignored working-dir files | git (`--no-files-checksum` to skip) |
@@ -106,6 +108,8 @@ Flat JSON output (`--format=json`):
   "git_branch": "main",
   "git_commit_sha": "a1b2c3d4e5f6...",
   "git_commit_sha_short": "a1b2c3d",
+  "git_commit_subject": "Merge pull request #3 from org/feature",
+  "git_is_merge": true,
   "git_tag": "",
   "git_dirty": false,
   "files_checksum": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -305,13 +309,31 @@ without an expression language:
 - `{ glob: '…' }` is an explicit glob, if you ever want it spelled out.
 
 **Matchable fields:** any output field, by its output name — `git_branch`,
-`git_commit_sha`, `git_commit_sha_short`, `git_tag`, `git_dirty`,
-`files_checksum`, `git_repo_url`, `git_repository`, `actor`, `event`,
-`ci_platform`, `ci_build_url`, `ci_build_number`, `ci_workflow`,
-`runtime_hostname`. The `git_*` fields also accept a short alias (`branch`,
-`tag`, `commit_sha`, `commit_sha_short`, `dirty`, `repo_url`, `repository`), so
-`branch: main` and `git_branch: main` are equivalent. An unknown field name is a
-load error, so typos surface immediately.
+`git_commit_sha`, `git_commit_sha_short`, `git_commit_subject`, `git_is_merge`,
+`git_tag`, `git_dirty`, `files_checksum`, `git_repo_url`, `git_repository`,
+`actor`, `event`, `ci_platform`, `ci_build_url`, `ci_build_number`,
+`ci_workflow`, `runtime_hostname`. The `git_*` fields also accept a short alias
+(`branch`, `tag`, `commit_sha`, `commit_sha_short`, `commit_subject`, `is_merge`,
+`dirty`, `repo_url`, `repository`), so `branch: main` and `git_branch: main` are
+equivalent. An unknown field name is a load error, so typos surface immediately.
+
+**Detecting a merge.** `git_is_merge` is the *structural* signal (HEAD has 2+
+parents) and `git_commit_subject` is a *heuristic* one (the merge message, which
+is user-editable). `git_is_merge` is only meaningful on a `push` — on a
+`pull_request` build it's provider-dependent (GitHub checks out a synthetic
+2-parent merge ref, GitLab the source branch). So gate on the event:
+
+```yaml
+- if:
+    all:
+      - branch: main
+      - event: push
+      - any:
+          - { git_is_merge: "true" }                                   # merge commit landed
+          - { git_commit_subject: { regex: '^Merge (pull request|branch) ' } }
+          - { git_commit_subject: { regex: '\(#[0-9]+\)$' } }          # squash "(#123)"
+  set: { env_name: prod, build_type: production }
+```
 
 The resolved variables appear as additional output fields in every format, after
 the detected ones; `--explain` notes which rule set each (`deploy: rule #2
@@ -382,6 +404,94 @@ guessing. Contributions welcome.
 and a GitHub tag push both report `tag` (uncommon platform triggers pass through
 their raw value). CircleCI has no event variable, so it's derived from
 `CIRCLE_TAG` / `CIRCLE_PULL_REQUEST` / `CIRCLE_BRANCH`.
+
+### Detection reference (verify it yourself)
+
+contextinfo's fields are the **normalized conclusions** of analyzing **raw
+inputs** — provider environment variables and local `git`. These tables show that
+mapping (raw input → normalized output) so you can reproduce every value by hand.
+The shown values were captured from real runs (see the `test-printenv` sandbox).
+
+The headline normalization is **`event`**: it is *not* a raw variable but a
+conclusion — contextinfo collapses each provider's trigger into one fixed
+vocabulary (`push`, `tag`, `pull_request`, `release`, `schedule`, `manual`) so the
+value means the same thing everywhere, even though each provider signals it
+differently:
+
+| normalized `event` (output) | GitHub `GITHUB_EVENT_NAME` (+`GITHUB_REF_TYPE`) | GitLab `CI_PIPELINE_SOURCE` (+`CI_COMMIT_TAG`) | CircleCI (ref variable) |
+| --- | --- | --- | --- |
+| `push` | `push` + `branch` | `push`, no `CI_COMMIT_TAG` | `CIRCLE_BRANCH` set |
+| `tag` | `push` + `tag` | `push` + `CI_COMMIT_TAG` | `CIRCLE_TAG` set |
+| `pull_request` | `pull_request` / `pull_request_target` | `merge_request_event` / `external_pull_request_event` | `CIRCLE_PULL_REQUEST` set |
+| `release` | `release` | *(none — no native event)* | *(none)* |
+| `schedule` | `schedule` | `schedule` | *(none)* |
+| `manual` | `workflow_dispatch` / `repository_dispatch` | `web` | *(none)* |
+| *(anything else)* | passed through unchanged | passed through unchanged | `""` |
+
+**Git commands — run locally in every provider** (via `git -C <dir>`; the
+sha/parents/subject come from one combined `git log -1 --format='%H%x00%P%x00%s'`):
+
+| field | obtained from | notes |
+| --- | --- | --- |
+| *(gate)* | `git rev-parse --is-inside-work-tree` | if not `true`, all git fields below are skipped |
+| `git_commit_sha` | `git log -1 --format=%H` | |
+| `git_commit_sha_short` | first 7 chars of the SHA | |
+| `git_commit_subject` | `git log -1 --format=%s` | first line; **user-editable** (a hint) |
+| `git_is_merge` | `git show -s --format=%P` → 2+ parents | structural merge signal (reliable) |
+| `git_tag` | `git describe --tags --exact-match` | empty when HEAD isn't tagged |
+| `git_dirty` | `git status --porcelain` non-empty | |
+| `git_branch` | `git symbolic-ref --short HEAD`, else the CI branch hint | hint used only when HEAD is detached |
+| `git_repository` / `git_repo_url` | `git config --get remote.origin.url` (ssh→https, credentials stripped) | the CI value wins when set |
+| `files_checksum` | SHA-256 over `git ls-files` (see [Content checksum](#content-checksum)) | |
+
+The per-provider tables below read **left → right: raw env-var inputs, then the
+normalized fields contextinfo outputs** for that scenario (the `→` columns).
+
+**GitHub Actions:**
+
+| Scenario | Raw env-var inputs | → `event` | → `git_branch` (source) | → `git_is_merge` |
+| --- | --- | --- | --- | --- |
+| push to a branch | `GITHUB_EVENT_NAME=push`, `GITHUB_REF_TYPE=branch` | `push` | branch (`git symbolic-ref`; attached) | `false` |
+| push a tag | `GITHUB_EVENT_NAME=push`, `GITHUB_REF_TYPE=tag` | `tag` | `""` | `false` |
+| open / update a PR | `GITHUB_EVENT_NAME=pull_request`, `GITHUB_HEAD_REF=<src>`, `GITHUB_REF=refs/pull/N/merge` | `pull_request` | `<src>` (`GITHUB_HEAD_REF`; HEAD detached) | **`true`** ⚠ synthetic merge ref — *not* a merge to main |
+| PR merged → main | `GITHUB_EVENT_NAME=push`, `GITHUB_REF_NAME=main` | `push` | `main` | `true` (+ subject `Merge pull request #N …`) |
+| publish a release | `GITHUB_EVENT_NAME=release` | `release` | `""` | — |
+| scheduled run | `GITHUB_EVENT_NAME=schedule` | `schedule` | branch (`GITHUB_REF_NAME`) | — |
+| manual run | `GITHUB_EVENT_NAME=workflow_dispatch` | `manual` | branch (`GITHUB_REF_NAME`) | — |
+
+Branch hint precedence: `GITHUB_HEAD_REF` → `GITHUB_REF_NAME` (only when
+`GITHUB_REF_TYPE=branch`). Any other `GITHUB_EVENT_NAME` passes through verbatim.
+
+**GitLab CI:**
+
+| Scenario | Raw env-var inputs | → `event` | → `git_branch` (source) | → `git_is_merge` |
+| --- | --- | --- | --- | --- |
+| push to a branch | `CI_PIPELINE_SOURCE=push`, `CI_COMMIT_BRANCH=<branch>`, `CI_COMMIT_TAG=` | `push` | `<branch>` (`CI_COMMIT_BRANCH`; HEAD detached) | `false` |
+| push a tag | `CI_PIPELINE_SOURCE=push`, `CI_COMMIT_TAG=<tag>` | `tag` | `""` | `false` |
+| open / update an MR | `CI_PIPELINE_SOURCE=merge_request_event`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME=<src>`, `CI_COMMIT_BRANCH=` | `pull_request` | `<src>` (MR source) | `false` (runs on source HEAD) |
+| MR merged → main | `CI_PIPELINE_SOURCE=push`, `CI_COMMIT_BRANCH=main` | `push` | `main` | `true` (+ subject `Merge branch '…' into 'main'`) |
+| scheduled run | `CI_PIPELINE_SOURCE=schedule` | `schedule` | `CI_COMMIT_BRANCH` | — |
+| manual ("Run pipeline") | `CI_PIPELINE_SOURCE=web` | `manual` | `CI_COMMIT_BRANCH` | — |
+
+Branch hint precedence: `CI_COMMIT_BRANCH` → `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`
+(GitLab's checkout is always detached, so the hint is always used).
+
+**CircleCI** — no event variable; `event` is derived from the ref (first match wins):
+
+| Scenario | Raw env-var inputs | → `event` | → `git_branch` (source) |
+| --- | --- | --- | --- |
+| tag build | `CIRCLE_TAG=<tag>` | `tag` | `""` |
+| PR build | `CIRCLE_PULL_REQUEST=<url>` | `pull_request` | `CIRCLE_BRANCH` |
+| branch build | `CIRCLE_BRANCH=<branch>` | `push` | `<branch>` (`CIRCLE_BRANCH`) |
+| none of the above | — | `""` | — |
+
+`git_is_merge` follows the git rule above; `git_repo_url` falls back to the local
+git remote when `CIRCLE_REPOSITORY_URL` is empty.
+
+> **Merge caveat.** `git_is_merge` is reliable on `event=push` (a real merge
+> commit has 2 parents), but **provider-dependent on PR/MR builds**: GitHub checks
+> out a synthetic 2-parent merge ref (`true`), GitLab runs on the source branch
+> (`false`). So gate merge rules on `event=push`.
 
 ## Development
 

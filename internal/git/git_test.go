@@ -80,6 +80,42 @@ func TestGitOnRepo(t *testing.T) {
 	}
 }
 
+// Commit returns HEAD's sha, parent count, and subject; parent count >= 2 marks a
+// merge commit.
+func TestCommit(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+
+	sha, parents, subject := Commit(ctx, dir)
+	if len(sha) != 40 {
+		t.Errorf("sha = %q, want 40 hex chars", sha)
+	}
+	if parents != 0 {
+		t.Errorf("parents = %d, want 0 (root commit)", parents)
+	}
+	if subject != "init" {
+		t.Errorf("subject = %q, want init", subject)
+	}
+
+	// Build a merge commit; HEAD should then have two parents.
+	runGit(t, dir, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "g.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-q", "-m", "feature work")
+	runGit(t, dir, "checkout", "-q", "main")
+	runGit(t, dir, "merge", "--no-ff", "-m", "Merge feature", "feature")
+
+	_, parents, subject = Commit(ctx, dir)
+	if parents != 2 {
+		t.Errorf("after merge: parents = %d, want 2", parents)
+	}
+	if subject != "Merge feature" {
+		t.Errorf("subject = %q, want \"Merge feature\"", subject)
+	}
+}
+
 // On a detached HEAD (as in CI) symbolic-ref fails, so Branch returns the supplied
 // hint, or "" when there is none.
 func TestBranchDetachedUsesHint(t *testing.T) {

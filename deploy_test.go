@@ -26,12 +26,14 @@ func branchRule(t *testing.T, glob string, set map[string]string) deploy.Rule {
 // Every output field is matchable by its output name; git_* fields also by a
 // short alias. Both must resolve to the same value.
 func TestFieldValueAliases(t *testing.T) {
-	i := Info{GitBranch: "main", GitTag: "v1", GitRepository: "o/r", GitDirty: true}
+	i := Info{GitBranch: "main", GitTag: "v1", GitRepository: "o/r", GitDirty: true, GitIsMerge: true, GitCommitSubject: "Merge pull request #3"}
 	pairs := [][2]string{
 		{"branch", "git_branch"},
 		{"tag", "git_tag"},
 		{"repository", "git_repository"},
 		{"dirty", "git_dirty"},
+		{"is_merge", "git_is_merge"},
+		{"commit_subject", "git_commit_subject"},
 	}
 	for _, p := range pairs {
 		short, _ := fieldValue(i, p[0])
@@ -46,7 +48,7 @@ func TestFieldValueAliases(t *testing.T) {
 }
 
 func TestIsMatchField(t *testing.T) {
-	for _, f := range []string{"branch", "git_branch", "tag", "event", "repository", "git_repository", "ci_platform", "files_checksum"} {
+	for _, f := range []string{"branch", "git_branch", "tag", "event", "repository", "git_repository", "ci_platform", "files_checksum", "is_merge", "git_is_merge", "commit_subject", "git_commit_subject"} {
 		if !IsMatchField(f) {
 			t.Errorf("%q should be a match field", f)
 		}

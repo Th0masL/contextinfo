@@ -15,7 +15,7 @@ func TestExplainLocal(t *testing.T) {
 	// The source notes match the local resolution.
 	for field, want := range map[string]string{
 		"git_branch":     "git symbolic-ref --short HEAD",
-		"git_commit_sha": "git rev-parse HEAD",
+		"git_commit_sha": "git log -1 --format=%H",
 		"git_repository": "git remote origin",
 		"actor":          "OS user",
 		"event":          "default (not in CI)",

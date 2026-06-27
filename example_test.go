@@ -44,6 +44,8 @@ func ExampleInfo_EnvVars() {
 	// TF_VAR_git_branch='main'
 	// TF_VAR_git_commit_sha=''
 	// TF_VAR_git_commit_sha_short=''
+	// TF_VAR_git_commit_subject=''
+	// TF_VAR_git_is_merge=false
 	// TF_VAR_git_tag=''
 	// TF_VAR_git_dirty=false
 	// TF_VAR_files_checksum=''

@@ -32,6 +32,8 @@ func (i Info) flatten(opts RenderOptions) []flatPair {
 		{prefix + "git_branch", i.GitBranch},
 		{prefix + "git_commit_sha", i.GitCommitSHA},
 		{prefix + "git_commit_sha_short", i.GitCommitSHAShort},
+		{prefix + "git_commit_subject", i.GitCommitSubject},
+		{prefix + "git_is_merge", i.GitIsMerge},
 		{prefix + "git_tag", i.GitTag},
 		{prefix + "git_dirty", i.GitDirty},
 		{prefix + "files_checksum", i.FilesChecksum},

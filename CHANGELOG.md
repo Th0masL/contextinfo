@@ -15,10 +15,10 @@ follows [Semantic Versioning](https://semver.org/).
   `internal/scm`, with public `config` and `deploy` subpackages.
 - A single flat `Info` set, resolved local-first — git/OS values are primary and
   CI variables augment them, so it works the same in and out of CI. Fields:
-  `git_branch`, `git_commit_sha`, `git_commit_sha_short`, `git_tag`, `git_dirty`,
-  `files_checksum`, `git_repo_url`, `git_repository`, `actor`, `event`,
-  `ci_platform`, `ci_build_url`, `ci_build_number`, `ci_workflow`,
-  `runtime_hostname`.
+  `git_branch`, `git_commit_sha`, `git_commit_sha_short`, `git_commit_subject`,
+  `git_is_merge`, `git_tag`, `git_dirty`, `files_checksum`, `git_repo_url`,
+  `git_repository`, `actor`, `event`, `ci_platform`, `ci_build_url`,
+  `ci_build_number`, `ci_workflow`, `runtime_hostname`.
   - `git_repository` / `git_repo_url` are derived from the git remote (ssh→https,
     embedded credentials stripped); `actor` falls back to the OS user.
   - `event` is normalized to a cross-provider vocabulary — `push`, `tag`,
@@ -28,6 +28,11 @@ follows [Semantic Versioning](https://semver.org/).
   - `git_branch` is branch-only — on a tag/detached checkout it stays empty and
     `git_tag` carries the tag (the CI ref hints are ref-type-aware, so a tag is
     never mislabeled as a branch).
+  - `git_is_merge` (HEAD has 2+ parents) is the structural merge signal;
+    `git_commit_subject` (HEAD subject, user-editable) is a heuristic one. Pair
+    `git_is_merge` with `event=push` — on a `pull_request` build it is
+    provider-dependent (GitHub checks out a synthetic 2-parent merge ref, GitLab
+    the source branch). Both are matchable in deploy rules.
   - `files_checksum` is a SHA-256 over the non-ignored files in the working
     directory — a content fingerprint independent of commit history. It is
     byte-for-byte reproducible with `git ls-files -z --cached --others

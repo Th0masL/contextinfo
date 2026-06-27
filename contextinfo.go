@@ -29,6 +29,8 @@ type Info struct {
 	GitBranch         string `json:"git_branch"`           // current branch ("" on a tag/detached checkout)
 	GitCommitSHA      string `json:"git_commit_sha"`       // full HEAD commit SHA
 	GitCommitSHAShort string `json:"git_commit_sha_short"` // first 7 chars of git_commit_sha
+	GitCommitSubject  string `json:"git_commit_subject"`   // HEAD commit subject (first line); user-editable, treat as a hint
+	GitIsMerge        bool   `json:"git_is_merge"`         // HEAD is a merge commit (2+ parents); structural, reliable
 	GitTag            string `json:"git_tag"`              // tag pointing at HEAD ("" if none)
 	GitDirty          bool   `json:"git_dirty"`            // working tree has uncommitted changes
 	FilesChecksum     string `json:"files_checksum"`       // SHA-256 of non-ignored working-dir files ("" if disabled)
@@ -145,10 +147,12 @@ func detect(getenv func(string) string, o options) Info {
 	// alone). This also distinguishes "not a repo" from "empty repo" for --explain.
 	inRepo := git.InRepo(ctx, o.dir)
 
-	var sha, short, tag, remote, branch, branchSrc string
-	dirty := false
+	var sha, short, tag, subject, remote, branch, branchSrc string
+	dirty, isMerge := false, false
 	if inRepo {
-		sha = git.Output(ctx, o.dir, "rev-parse", "HEAD")
+		var parents int
+		sha, parents, subject = git.Commit(ctx, o.dir)
+		isMerge = parents >= 2
 		short = sha
 		if len(short) > 7 {
 			short = short[:7]
@@ -167,6 +171,8 @@ func detect(getenv func(string) string, o options) Info {
 		GitBranch:         branch,
 		GitCommitSHA:      sha,
 		GitCommitSHAShort: short,
+		GitCommitSubject:  subject,
+		GitIsMerge:        isMerge,
 		GitTag:            tag,
 		GitDirty:          dirty,
 		GitRepoURL:        firstNonEmpty(cid.RepoURL, scm.HTTPSURL(remote)),

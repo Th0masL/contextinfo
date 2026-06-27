@@ -43,8 +43,10 @@ func buildExplained(cid ci.Data, ciSrc map[string]string, info Info, branchSrc s
 
 	return map[string]string{
 		"git_branch":           branchSrc,
-		"git_commit_sha":       gitOr(inRepo, "git rev-parse HEAD"),
+		"git_commit_sha":       gitOr(inRepo, "git log -1 --format=%H"),
 		"git_commit_sha_short": gitOr(inRepo, "first 7 of git_commit_sha"),
+		"git_commit_subject":   gitOr(inRepo, "git log -1 --format=%s (user-editable)"),
+		"git_is_merge":         gitOr(inRepo, "HEAD parent count >= 2"),
 		"git_tag":              tag,
 		"git_dirty":            dirty,
 		"files_checksum":       cksum,
