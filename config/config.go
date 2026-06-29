@@ -31,6 +31,28 @@ type Config struct {
 	FilesChecksum *bool         `yaml:"files_checksum"`
 	Explain       *bool         `yaml:"explain"`
 	Deploy        *deployConfig `yaml:"deploy"` // parsed deploy rules (see deploy.go)
+
+	// Cascade (key `config_cascade`), set to false, makes this file the top of the
+	// cascade: discovery stops here and reads nothing farther from the directory
+	// ($HOME, /etc, or parents above it). A discovery directive consumed during
+	// Load, not a rendered/detection setting; nil/true = keep cascading (default).
+	Cascade *bool `yaml:"config_cascade"`
+}
+
+// LoadOption configures Load.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	noCascade bool
+}
+
+// NoCascade makes Load read only the single closest .contextinfo.yaml (the file
+// nearest the directory) and ignore all others — no cascading up the tree, no
+// $HOME, no /etc. The CLI exposes this as --no-config-cascade. (It differs from a
+// file's `config_cascade: false`, which still merges the files between the
+// boundary and the directory; NoCascade reads exactly one file.)
+func NoCascade() LoadOption {
+	return func(o *loadOptions) { o.noCascade = true }
 }
 
 // Load discovers and merges config for the given directory: dir and its parents
@@ -41,25 +63,44 @@ type Config struct {
 // extensions exist in a directory. It returns the merged config and the paths
 // actually loaded (lowest- to highest-precedence). Missing files are not an
 // error; a malformed file is.
-func Load(dir string) (Config, []string, error) {
+//
+// Two ways to limit the cascade: a file may set `config_cascade: false` (discovery
+// stops at that file — nothing farther from dir is read), or the caller may pass
+// NoCascade() to read only the single closest file.
+func Load(dir string, opts ...LoadOption) (Config, []string, error) {
+	var lo loadOptions
+	for _, o := range opts {
+		o(&lo)
+	}
 	home, _ := os.UserHomeDir()
-	return load(dir, home, "/etc")
+	return discover(dir, home, "/etc", lo.noCascade)
 }
 
-// load is the testable core of Load with the $HOME and system directories
-// injected so tests can point them at temporary directories.
+// load is the testable core for the default (full-cascade) behavior, with the
+// $HOME and system directories injected so tests can point them at temp dirs.
 func load(dir, home, etc string) (Config, []string, error) {
-	// Base paths (without extension), lowest-precedence first; applied in order.
+	return discover(dir, home, etc, false)
+}
+
+// discover walks the candidate locations closest-first, collecting existing files
+// until it hits a `config_cascade: false` boundary (or, when noCascade is set,
+// after the first file), then merges them closest-wins.
+func discover(dir, home, etc string, noCascade bool) (Config, []string, error) {
+	// Candidate base paths, CLOSEST-first: dir → parents → repo root, then $HOME,
+	// then /etc. (treeBases returns root→…→dir, so reverse it.)
 	var bases []string
-	if etc != "" {
-		bases = append(bases, filepath.Join(etc, "contextinfo"))
+	tree := treeBases(dir)
+	for i := len(tree) - 1; i >= 0; i-- {
+		bases = append(bases, tree[i])
 	}
 	if home != "" {
 		bases = append(bases, filepath.Join(home, baseName))
 	}
-	bases = append(bases, treeBases(dir)...) // repo root → … → dir (dir last)
+	if etc != "" {
+		bases = append(bases, filepath.Join(etc, "contextinfo"))
+	}
 
-	var merged Config
+	var found []Config
 	var loaded []string
 	seen := map[string]bool{}
 	for _, base := range bases {
@@ -84,8 +125,26 @@ func load(dir, home, etc string) (Config, []string, error) {
 		if err := yaml.Unmarshal(data, &c); err != nil {
 			return Config{}, nil, fmt.Errorf("parsing %s: %w", p, err)
 		}
-		merged.merge(c)
+		found = append(found, c)
 		loaded = append(loaded, p)
+
+		if noCascade {
+			break // read only the closest file
+		}
+		if c.Cascade != nil && !*c.Cascade {
+			break // boundary: read nothing farther from dir than this file
+		}
+	}
+
+	// Merge closest-wins: apply most-general first, the closest last. found is
+	// closest-first, so iterate it in reverse.
+	var merged Config
+	for i := len(found) - 1; i >= 0; i-- {
+		merged.merge(found[i])
+	}
+	// Return loaded lowest- to highest-precedence (loaded is closest-first).
+	for i, j := 0, len(loaded)-1; i < j; i, j = i+1, j-1 {
+		loaded[i], loaded[j] = loaded[j], loaded[i]
 	}
 	return merged, loaded, nil
 }

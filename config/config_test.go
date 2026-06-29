@@ -137,6 +137,108 @@ func TestLoadYamlPreferredOverYml(t *testing.T) {
 	}
 }
 
+// A file with config_cascade:false caps the cascade at that file: closer files
+// still merge, but $HOME, /etc, and anything farther are ignored.
+func TestLoadConfigCascadeFalseBoundary(t *testing.T) {
+	etc := t.TempDir()
+	home := t.TempDir()
+	repo := t.TempDir()
+	sub := filepath.Join(repo, "stack")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(etc, "contextinfo.yaml"), "files_checksum: false\n")
+	write(t, filepath.Join(home, ".contextinfo.yaml"), "explain: true\n")
+	write(t, filepath.Join(repo, ".contextinfo.yaml"), "config_cascade: false\nformat: text\n") // boundary
+	write(t, filepath.Join(sub, ".contextinfo.yaml"), "prefix: P_\n")                           // closest
+
+	cfg, loaded, err := load(sub, home, etc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deref(cfg.Prefix) != "P_" { // closest file, inside the boundary
+		t.Errorf("prefix = %q, want P_", deref(cfg.Prefix))
+	}
+	if deref(cfg.Format) != "text" { // the boundary file is included
+		t.Errorf("format = %q, want text", deref(cfg.Format))
+	}
+	if cfg.Explain != nil {
+		t.Error("explain should be unset: $HOME is beyond the config_cascade:false boundary")
+	}
+	if cfg.FilesChecksum != nil {
+		t.Error("files_checksum should be unset: /etc is beyond the boundary")
+	}
+	if len(loaded) != 2 {
+		t.Errorf("loaded %d files, want 2 (sub + repo): %v", len(loaded), loaded)
+	}
+}
+
+// When several files set config_cascade:false, the boundary is the one CLOSEST to
+// the directory; farther config_cascade:false files are never read.
+func TestLoadConfigCascadeFalseClosestWins(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	mid := filepath.Join(repo, "mid")
+	leaf := filepath.Join(mid, "leaf")
+	if err := os.MkdirAll(leaf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Two boundaries (repo root and mid); the closer one (mid) must win.
+	write(t, filepath.Join(repo, ".contextinfo.yaml"), "config_cascade: false\nformat: text\n")
+	write(t, filepath.Join(mid, ".contextinfo.yaml"), "config_cascade: false\nexplain: true\n")
+	write(t, filepath.Join(leaf, ".contextinfo.yaml"), "prefix: P_\n")
+	write(t, filepath.Join(home, ".contextinfo.yaml"), "files_checksum: false\n")
+
+	cfg, loaded, err := load(leaf, home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deref(cfg.Prefix) != "P_" || cfg.Explain == nil || !*cfg.Explain {
+		t.Errorf("expected leaf+mid merged (prefix=P_, explain=true), got %+v", cfg)
+	}
+	if cfg.Format != nil {
+		t.Error("format should be unset: the repo-root boundary is farther than mid's, so never read")
+	}
+	if len(loaded) != 2 { // leaf + mid only
+		t.Errorf("loaded %d files, want 2 (leaf + mid): %v", len(loaded), loaded)
+	}
+}
+
+// NoCascade reads only the single closest file, ignoring everything else.
+func TestLoadNoCascadeClosestOnly(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	sub := filepath.Join(repo, "stack")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(repo, ".contextinfo.yaml"), "format: text\n")
+	write(t, filepath.Join(sub, ".contextinfo.yaml"), "prefix: P_\n")
+
+	cfg, loaded, err := discover(sub, home, "", true) // NoCascade
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deref(cfg.Prefix) != "P_" {
+		t.Errorf("prefix = %q, want P_", deref(cfg.Prefix))
+	}
+	if cfg.Format != nil {
+		t.Error("format should be unset: NoCascade reads only the closest file")
+	}
+	if len(loaded) != 1 {
+		t.Errorf("loaded %d files, want 1 (closest only): %v", len(loaded), loaded)
+	}
+}
+
 // No files anywhere yields an empty config and no error.
 func TestLoadMissingIsEmpty(t *testing.T) {
 	cfg, loaded, err := load(t.TempDir(), t.TempDir(), t.TempDir())

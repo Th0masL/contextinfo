@@ -24,6 +24,7 @@ func main() {
 	explain := flag.Bool("explain", false, "also emit <name>_explained companions noting each value's source")
 	envName := flag.String("env-name", "", "force the env_name deploy variable (overrides config deploy rules)")
 	buildType := flag.String("build-type", "", "force the build_type deploy variable (overrides config deploy rules)")
+	noConfigCascade := flag.Bool("no-config-cascade", false, "read only the closest .contextinfo.yaml (don't merge parent/$HOME/etc configs)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -41,9 +42,14 @@ func main() {
 		}
 	}
 
-	// Load .contextinfo.yaml (merged closest-wins), then let explicitly-set flags
-	// override it. Precedence: defaults < config file(s) < flags.
-	cfg, _, err := config.Load(workdir)
+	// Load .contextinfo.yaml (merged closest-wins; --no-config-cascade reads only
+	// the closest), then let explicitly-set flags override it. Precedence:
+	// defaults < config file(s) < flags.
+	var loadOpts []config.LoadOption
+	if *noConfigCascade {
+		loadOpts = append(loadOpts, config.NoCascade())
+	}
+	cfg, _, err := config.Load(workdir, loadOpts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "contextinfo: %v\n", err)
 		os.Exit(2)

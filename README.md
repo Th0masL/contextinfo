@@ -234,10 +234,22 @@ format: tfvars          # envvar | json | text | tfvars
 prefix: TF_VAR_
 files_checksum: false   # same as --no-files-checksum
 explain: false
+# config_cascade: false # stop the cascade here (see below)
 # deploy: { ... }       # derive env_name/build_type — see "Deploy rules" below
 ```
 
 A missing file is fine (no config); a malformed file is an error.
+
+**Limiting the cascade.** Two ways to stop the merge:
+
+- **`config_cascade: false`** in a file makes it the **top of the cascade**:
+  discovery stops there, so files *farther* from the directory (parents above it,
+  `$HOME`, `/etc`) are ignored, while files *closer* still merge. If several files
+  set it, the one **closest** to the directory wins (farther ones are never read).
+  Use it to make a repo or stack self-contained.
+- **`--no-config-cascade`** (CLI; library: `config.NoCascade()`) reads **only the
+  single closest** `.contextinfo.yaml` and ignores everything else — no merge at
+  all. The invoker forces isolation, regardless of file contents.
 
 Library users load the same config via the `config` subpackage — which is where
 the YAML dependency lives, so the core `contextinfo` package stays
@@ -427,6 +439,17 @@ differently:
 | `schedule` | `schedule` | `schedule` | *(none)* |
 | `manual` | `workflow_dispatch` / `repository_dispatch` | `web` | *(none)* |
 | *(anything else)* | passed through unchanged | passed through unchanged | `""` |
+
+> **`release` vs `tag`, and detecting a tagged build.** Only GitHub has a distinct
+> `release` event, because the platforms model releases oppositely: a **GitHub**
+> Release *creates the tag and fires `release`* (so you see both `event=release`
+> and, from the tag-ref push, `event=tag`). On **GitLab** the **tag is created
+> first** (→ `event=tag`), and publishing a Release afterward **triggers no
+> pipeline at all** — it's invisible to CI; the tag pipeline is the only thing that
+> runs. (CircleCI likewise only has `tag`.) A GitHub release build is
+> `event=release` (not `tag`) but **still sets `git_tag`**. So to detect "any
+> tagged/version build" portably, check **`git_tag != ""`** (set for both `tag`
+> and `release`) rather than `event=tag` alone.
 
 **Git commands — run locally in every provider** (via `git -C <dir>`; the
 sha/parents/subject come from one combined `git log -1 --format='%H%x00%P%x00%s'`):
