@@ -241,3 +241,20 @@ func TestGitLabDataMergeRequest(t *testing.T) {
 		t.Errorf("branchHint = %q, want feature/x (MR source branch)", d.BranchHint)
 	}
 }
+
+// With the primary build vars unset, BuildURL/BuildNumber fall back to
+// CI_JOB_URL / CI_PIPELINE_ID — the secondary arms the full-environment cases
+// above never reach.
+func TestGitLabDataBuildFallbacks(t *testing.T) {
+	d, _ := Detect(getter(map[string]string{
+		"GITLAB_CI":      "true",
+		"CI_JOB_URL":     "https://gitlab.com/org/repo/-/jobs/42",
+		"CI_PIPELINE_ID": "100",
+	}))
+	if d.BuildURL != "https://gitlab.com/org/repo/-/jobs/42" {
+		t.Errorf("BuildURL = %q, want the CI_JOB_URL fallback", d.BuildURL)
+	}
+	if d.BuildNumber != "100" {
+		t.Errorf("BuildNumber = %q, want the CI_PIPELINE_ID fallback", d.BuildNumber)
+	}
+}

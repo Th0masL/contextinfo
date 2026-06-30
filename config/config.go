@@ -31,12 +31,15 @@ type Config struct {
 	FilesChecksum *bool         `yaml:"files_checksum"`
 	Explain       *bool         `yaml:"explain"`
 	Deploy        *deployConfig `yaml:"deploy"` // parsed deploy rules (see deploy.go)
+}
 
-	// Cascade (key `config_cascade`), set to false, makes this file the top of the
-	// cascade: discovery stops here and reads nothing farther from the directory
-	// ($HOME, /etc, or parents above it). A discovery directive consumed during
-	// Load, not a rendered/detection setting; nil/true = keep cascading (default).
-	Cascade *bool `yaml:"config_cascade"`
+// fileConfig is the on-disk shape of a .contextinfo.yaml: the public settings
+// (inlined) plus the config_cascade discovery directive. The directive is consumed
+// during Load to bound the cascade and never surfaces on the merged Config, which
+// is why it lives here rather than on Config.
+type fileConfig struct {
+	Config  `yaml:",inline"`
+	Cascade *bool `yaml:"config_cascade"` // false = make this file the top of the cascade
 }
 
 // LoadOption configures Load.
@@ -119,19 +122,25 @@ func discover(dir, home, etc string, noCascade bool) (Config, []string, error) {
 
 		data, err := os.ReadFile(p)
 		if err != nil {
-			continue // missing/unreadable: not an error
+			if os.IsNotExist(err) {
+				continue // raced away after discovery: treat as absent
+			}
+			// Present but unreadable (permissions, EISDIR, I/O): the user placed a
+			// config here and it silently failing to apply is worse than surfacing
+			// it — same visibility as a malformed file.
+			return Config{}, nil, fmt.Errorf("reading %s: %w", p, err)
 		}
-		var c Config
-		if err := yaml.Unmarshal(data, &c); err != nil {
+		var fc fileConfig
+		if err := yaml.Unmarshal(data, &fc); err != nil {
 			return Config{}, nil, fmt.Errorf("parsing %s: %w", p, err)
 		}
-		found = append(found, c)
+		found = append(found, fc.Config)
 		loaded = append(loaded, p)
 
 		if noCascade {
 			break // read only the closest file
 		}
-		if c.Cascade != nil && !*c.Cascade {
+		if fc.Cascade != nil && !*fc.Cascade {
 			break // boundary: read nothing farther from dir than this file
 		}
 	}

@@ -126,6 +126,17 @@ func TestChecksumMatchesShellPipeline(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(dir, "link.tf")); err == nil {
 		runGit(t, dir, "add", "link.tf")
 	}
+	// Names that exercise the coreutils escaping branch (a backslash and a newline,
+	// which sha256sum prefixes with "\" and escapes as \\ and \n) plus a non-ASCII
+	// name (high bytes passed through verbatim, and byte-sorted the same as
+	// LC_ALL=C). These are exactly the paths the ASCII-only cases above never reach.
+	// (\r is intentionally omitted: not every coreutils version escapes it, which
+	// would make this cross-implementation oracle non-portable.)
+	for _, name := range []string{"café.txt", `back\slash.txt`, "line\nbreak.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644); err != nil {
+			t.Skipf("filesystem rejects %q: %v", name, err)
+		}
+	}
 
 	const pipeline = `git ls-files -z --cached --others --exclude-standard | ` +
 		`LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}'`

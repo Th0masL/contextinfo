@@ -85,6 +85,39 @@ func TestDetectAppliesDeployRules(t *testing.T) {
 	}
 }
 
+// DeployVars exposes the variables Detect computed as structured data: it
+// reflects WithDeployVar overrides, returns a copy (not the internal map), and is
+// nil when no rules/overrides were supplied.
+func TestDeployVars(t *testing.T) {
+	rules := deploy.Rules{
+		Rules:   []deploy.Rule{branchRule(t, "main", map[string]string{"env_name": "prod"})},
+		Default: map[string]string{"env_name": "dev"},
+	}
+	env := getter(map[string]string{
+		"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "push",
+		"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "main",
+	})
+
+	info := detect(env, options{dir: t.TempDir(), deploy: rules, hasDeploy: true})
+	if got := info.DeployVars(); got["env_name"] != "prod" {
+		t.Errorf("DeployVars()[env_name] = %q, want prod", got["env_name"])
+	}
+	// Reflects WithDeployVar overrides — the asymmetry the stateless Resolve has.
+	info2 := detect(env, options{dir: t.TempDir(), deploy: rules, hasDeploy: true, deployVars: map[string]string{"env_name": "forced"}})
+	if got := info2.DeployVars(); got["env_name"] != "forced" {
+		t.Errorf("DeployVars()[env_name] = %q, want forced (override)", got["env_name"])
+	}
+	// The returned map is a copy: mutating it must not affect the Info.
+	info2.DeployVars()["env_name"] = "tampered"
+	if info2.derived["env_name"] != "forced" {
+		t.Error("DeployVars() must return a copy, not the internal map")
+	}
+	// Nil when no rules/overrides were supplied.
+	if got := detect(env, options{dir: t.TempDir()}).DeployVars(); got != nil {
+		t.Errorf("DeployVars() with no deploy options = %v, want nil", got)
+	}
+}
+
 // Resolve applies rules to an Info directly (the public helper).
 func TestResolve(t *testing.T) {
 	rules := deploy.Rules{

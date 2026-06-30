@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -236,6 +237,43 @@ func TestLoadNoCascadeClosestOnly(t *testing.T) {
 	}
 	if len(loaded) != 1 {
 		t.Errorf("loaded %d files, want 1 (closest only): %v", len(loaded), loaded)
+	}
+}
+
+// A deploy block parses correctly when loaded through the cascade — i.e. the
+// fileConfig `,inline` embedding still routes `deploy:` to its custom unmarshaler.
+func TestLoadDeployBlockViaCascade(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, ".contextinfo.yaml"),
+		"deploy:\n  rules:\n    - if: { branch: main }\n      set: { env_name: prod }\n")
+	cfg, _, err := load(dir, "", "")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, ok := cfg.DeployRules(); !ok {
+		t.Error("deploy block not parsed through load()/fileConfig inline")
+	}
+}
+
+// A present-but-unreadable config is surfaced as an error, not silently skipped —
+// the same visibility a malformed config gets. (A truly missing file stays fine.)
+func TestLoadUnreadableConfigErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod permission bits don't gate reads on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions; cannot make a file unreadable")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, ".contextinfo.yaml")
+	write(t, p, "format: text\n")
+	if err := os.Chmod(p, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(p, 0o644) }) // let TempDir cleanup remove it
+
+	if _, _, err := load(dir, "", ""); err == nil {
+		t.Fatal("expected an error for a present-but-unreadable config, got nil")
 	}
 }
 

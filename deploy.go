@@ -27,6 +27,23 @@ func Resolve(rules DeployRules, info Info) map[string]string {
 	return vars
 }
 
+// DeployVars returns the derived deploy variables Detect computed from the
+// WithDeployRules/WithDeployVar options — e.g. env_name, build_type — as a fresh
+// map (nil when none were supplied). It is the structured counterpart to the
+// rendered output: where the four renderers fold these into formatted text,
+// DeployVars hands them back as data. Unlike the stateless package-level Resolve,
+// it reflects exactly what Detect produced, including any WithDeployVar overrides.
+func (i Info) DeployVars() map[string]string {
+	if i.derived == nil {
+		return nil
+	}
+	out := make(map[string]string, len(i.derived))
+	for k, v := range i.derived {
+		out[k] = v
+	}
+	return out
+}
+
 // lookup adapts an Info to the deploy engine's field-resolution function.
 func (i Info) lookup() deploy.Lookup {
 	return func(name string) (string, bool) { return fieldValue(i, name) }

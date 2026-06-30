@@ -167,7 +167,7 @@ $ contextinfo --explain
 git_branch='main'
 git_branch_explained='git symbolic-ref --short HEAD'
 git_commit_sha='5d98397c…'
-git_commit_sha_explained='git rev-parse HEAD'
+git_commit_sha_explained='git log -1 --format=%H'
 git_tag=''
 git_tag_explained='git describe --tags --exact-match (no tag at HEAD)'
 event='manual'
@@ -177,7 +177,7 @@ event_explained='default (not in CI)'
 
 In CI the notes name the winning provider variables — e.g.
 `actor_explained='GITHUB_ACTOR'`, `git_repo_url_explained='GITHUB_SERVER_URL + GITHUB_REPOSITORY'`,
-or `git_branch_explained='none (tag or detached HEAD)'`. It works with every
+or `git_branch_explained='none (detached HEAD or not a git repository)'`. It works with every
 format (the companions are just extra keys), and the library does the same via
 `RenderOptions{Explain: true}` (see below).
 
@@ -387,7 +387,9 @@ context (cancel/timeout). Deploy rules can be loaded from a `.contextinfo.yaml`
 (via the `config` subpackage) **or built in code** with the
 [`deploy`](deploy) package — handy for an embedder such as a Terraform provider
 that decodes rules from HCL. Apply them with `contextinfo.WithDeployRules(...)`
-or `contextinfo.Resolve(rules, info)`.
+and read the result back as structured data via `info.DeployVars()` (a
+`map[string]string` that reflects any `WithDeployVar` overrides), or evaluate
+rules against an Info you already hold with `contextinfo.Resolve(rules, info)`.
 
 Rendering is separate from detection: `EnvVars`, `FlatJSON`, `TFVarsHCL`, and
 `Text` each take a `contextinfo.RenderOptions{Prefix, Explain}` — so the same
@@ -460,7 +462,7 @@ sha/parents/subject come from one combined `git log -1 --format='%H%x00%P%x00%s'
 | `git_commit_sha` | `git log -1 --format=%H` | |
 | `git_commit_sha_short` | first 7 chars of the SHA | |
 | `git_commit_subject` | `git log -1 --format=%s` | first line; **user-editable** (a hint) |
-| `git_is_merge` | `git show -s --format=%P` → 2+ parents | structural merge signal (reliable) |
+| `git_is_merge` | `git log -1 --format=%P` → 2+ parents | structural merge signal (reliable) |
 | `git_tag` | `git describe --tags --exact-match` | empty when HEAD isn't tagged |
 | `git_dirty` | `git status --porcelain` non-empty | |
 | `git_branch` | `git symbolic-ref --short HEAD`, else the CI branch hint | hint used only when HEAD is detached |

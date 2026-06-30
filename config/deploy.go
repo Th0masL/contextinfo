@@ -40,7 +40,12 @@ func parseDeploy(node *yaml.Node) (deploy.Rules, error) {
 	if node.Kind != yaml.MappingNode {
 		return out, fmt.Errorf("deploy: expected a mapping, got %s", kind(node))
 	}
-	for k, v := range mapEntries(node) {
+	entries, err := mapEntries(node)
+	if err != nil {
+		return out, fmt.Errorf("deploy: %w", err)
+	}
+	for _, e := range entries {
+		k, v := e.key, e.val
 		switch k {
 		case "rules":
 			v = resolve(v)
@@ -74,7 +79,12 @@ func parseRule(node *yaml.Node) (deploy.Rule, error) {
 	if node.Kind != yaml.MappingNode {
 		return rule, fmt.Errorf("expected a mapping, got %s", kind(node))
 	}
-	for k, v := range mapEntries(node) {
+	entries, err := mapEntries(node)
+	if err != nil {
+		return rule, err
+	}
+	for _, e := range entries {
+		k, v := e.key, e.val
 		switch k {
 		case "if":
 			cond, err := parseCond(v)
@@ -102,9 +112,13 @@ func parseSet(node *yaml.Node) (map[string]string, error) {
 	if node.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("expected a mapping, got %s", kind(node))
 	}
+	entries, err := mapEntries(node)
+	if err != nil {
+		return nil, err
+	}
 	set := map[string]string{}
-	for k, v := range mapEntries(node) {
-		v = resolve(v)
+	for _, e := range entries {
+		k, v := e.key, resolve(e.val)
 		if v.Kind != yaml.ScalarNode {
 			return nil, fmt.Errorf("%s: expected a scalar value, got %s", k, kind(v))
 		}
@@ -124,7 +138,12 @@ func parseCond(node *yaml.Node) (deploy.Cond, error) {
 	if node.Kind != yaml.MappingNode {
 		return cond, fmt.Errorf("expected a mapping, got %s", kind(node))
 	}
-	for k, v := range mapEntries(node) {
+	entries, err := mapEntries(node)
+	if err != nil {
+		return cond, err
+	}
+	for _, e := range entries {
+		k, v := e.key, e.val
 		switch k {
 		case "all", "any":
 			subs, err := parseCondList(v)
@@ -231,14 +250,30 @@ func parsePattern(node *yaml.Node) (deploy.Pattern, error) {
 	}
 }
 
-// mapEntries iterates a mapping node's key/value pairs, yielding the key string
-// and the value node.
-func mapEntries(node *yaml.Node) map[string]*yaml.Node {
-	out := make(map[string]*yaml.Node, len(node.Content)/2)
+// mapEntry is one key/value pair of a YAML mapping, kept in document order.
+type mapEntry struct {
+	key string
+	val *yaml.Node
+}
+
+// mapEntries returns a mapping node's key/value pairs in document order, erroring
+// on a duplicate key. Walking yaml.Node directly (rather than decoding into a Go
+// map/struct) is what lets the deploy parser read verbatim scalars, but it also
+// bypasses yaml.v3's own duplicate-key rejection and any stable iteration order —
+// so we restore both here: order is preserved so error messages are reproducible,
+// and a repeated key is rejected instead of silently taking the last value.
+func mapEntries(node *yaml.Node) ([]mapEntry, error) {
+	entries := make([]mapEntry, 0, len(node.Content)/2)
+	seen := make(map[string]bool, len(node.Content)/2)
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		out[node.Content[i].Value] = node.Content[i+1]
+		k := node.Content[i].Value
+		if seen[k] {
+			return nil, fmt.Errorf("duplicate key %q", k)
+		}
+		seen[k] = true
+		entries = append(entries, mapEntry{key: k, val: node.Content[i+1]})
 	}
-	return out
+	return entries, nil
 }
 
 // resolve dereferences an alias node to the node it points at (so YAML anchors
