@@ -265,6 +265,8 @@ type mapEntry struct {
 func mapEntries(node *yaml.Node) ([]mapEntry, error) {
 	entries := make([]mapEntry, 0, len(node.Content)/2)
 	seen := make(map[string]bool, len(node.Content)/2)
+	// A yaml.v3 MappingNode stores its pairs as a flat slice: Content is
+	// [key0, val0, key1, val1, ...], so we step by two to read each key/value.
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		k := node.Content[i].Value
 		if seen[k] {

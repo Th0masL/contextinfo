@@ -15,7 +15,9 @@ import (
 // DeployRules is a set of deploy rules. Get one from the config subpackage
 // (config.Config.DeployRules, parsed from a .contextinfo.yaml) or build one in
 // code with the deploy package; apply it with WithDeployRules, or evaluate it
-// directly with Resolve.
+// directly with Resolve. The `=` makes this a type alias — an exact synonym for
+// deploy.Rules, not a distinct type — so values of either are interchangeable
+// with no conversion.
 type DeployRules = deploy.Rules
 
 // Resolve applies deploy rules to a detected Info and returns the derived

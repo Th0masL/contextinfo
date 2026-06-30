@@ -61,7 +61,11 @@ type Info struct {
 	explained map[string]string
 }
 
-// Option configures Detect.
+// Option configures Detect. This is the functional-options pattern: each With*
+// helper below returns a small closure that sets one field of the private options
+// struct, and Detect takes them as variadic arguments (Detect(opts...)) and
+// applies each in order. It is Go's idiomatic, backward-compatible alternative to
+// a long parameter list — Go has no named or default arguments.
 type Option func(*options)
 
 // options holds the resolved configuration for a Detect call (see Option).

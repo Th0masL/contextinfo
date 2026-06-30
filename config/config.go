@@ -42,7 +42,10 @@ type fileConfig struct {
 	Cascade *bool `yaml:"config_cascade"` // false = make this file the top of the cascade
 }
 
-// LoadOption configures Load.
+// LoadOption configures Load, using the same functional-options pattern as
+// contextinfo.Option: each option is a closure that sets a field of the private
+// loadOptions, passed variadically (e.g. Load(dir, NoCascade())). This keeps
+// Load's signature stable as options are added.
 type LoadOption func(*loadOptions)
 
 type loadOptions struct {

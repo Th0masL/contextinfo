@@ -62,6 +62,9 @@ func main() {
 	checksum := resolveBool(true, cfg.FilesChecksum, set["no-files-checksum"], !*noFilesChecksum)
 	doExplain := resolveBool(false, cfg.Explain, set["explain"], *explain)
 
+	// Functional options (see contextinfo.Option): each WithX() returns a closure
+	// that Detect applies internally, so here we just collect the ones we want and
+	// pass them with opts... — nothing happens at these call sites themselves.
 	opts := []contextinfo.Option{contextinfo.WithDir(workdir)}
 	if !checksum {
 		opts = append(opts, contextinfo.WithoutFilesChecksum())

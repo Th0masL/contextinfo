@@ -116,6 +116,8 @@ func (i Info) TFVarsHCL(opts RenderOptions) string {
 	}
 	var b strings.Builder
 	for _, p := range pairs {
+		// %-*s left-justifies p.key in a field `width` wide — the `*` takes the
+		// width from the next argument (width, computed above) — so the `=` align.
 		fmt.Fprintf(&b, "%-*s = %s\n", width, p.key, hclValue(p.val))
 	}
 	return b.String()
@@ -154,6 +156,7 @@ func (i Info) Text(opts RenderOptions) string {
 	}
 	var b strings.Builder
 	for _, p := range pairs {
+		// %-*s pads each key to `width` (see TFVarsHCL) so the columns align.
 		fmt.Fprintf(&b, "%-*s  %s\n", width, p.key, fmt.Sprint(p.val))
 	}
 	return b.String()
